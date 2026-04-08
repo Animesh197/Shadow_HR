@@ -1,25 +1,32 @@
 from difflib import SequenceMatcher
 
 def text_similarity(a, b):
-    a = a or ""
-    b = b or ""
-    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+    a = (a or "").lower().strip()
+    b = (b or "").lower().strip()
+    return SequenceMatcher(None, a, b).ratio()
 
 
 def project_repo_similarity(project, repo):
-    # Step 1: Normalize project
+    # Normalize project
     if isinstance(project, str):
-        project_name = project
+        project_name = project.lower().strip()
         project_desc = ""
     else:
-        project_name = project.get("name", "")
-        project_desc = project.get("description", "")
+        project_name = project.get("name", "").lower().strip()
+        project_desc = project.get("description", "").lower().strip()
 
-    # Step 2: Normalize repo
-    repo_name = repo.get("name", "") or ""
-    repo_desc = repo.get("description", "") or ""
+    repo_name = (repo.get("name", "") or "").lower().strip()
+    repo_desc = (repo.get("description", "") or "").lower().strip()
 
-    # Step 3: Compute similarity
+    # STEP 1: Exact match (VERY IMPORTANT)
+    if project_name == repo_name:
+        return 1.0
+
+    # STEP 2: Substring match (strong signal)
+    if project_name in repo_name or repo_name in project_name:
+        return 0.9
+
+    # STEP 3: Fallback to similarity
     name_score = text_similarity(project_name, repo_name)
     desc_score = text_similarity(project_desc, repo_desc)
 
