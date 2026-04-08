@@ -1,148 +1,24 @@
-import fitz  
-from groq import Groq
-import json
-import os
-from dotenv import load_dotenv
-from github_utils import fetch_github_repos
-from selection.repo_selector import select_top_repos
+"""
+Main pipeline runner
 
-load_dotenv()
-
-# Initialize Groq client
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-
-# -------- STEP 1: Extract text from PDF --------
-def extract_text_from_pdf(pdf_path):
-    text = ""
-    doc = fitz.open(pdf_path)
-
-    for page in doc:
-        text += page.get_text()
-
-    return text
-
-
-
-# -------- NEW: Extract links from PDF --------
-def extract_links_from_pdf(pdf_path):
-    doc = fitz.open(pdf_path)
-    links = []
-
-    for page in doc:
-        page_links = page.get_links()
-        
-        for link in page_links:
-            uri = link.get("uri")
-            if uri:
-                links.append(uri)
-
-    return links
-
-
-
-# -------- NEW: Extract GitHub from links --------
-def extract_github_from_links(links):
-    for link in links:
-        if "github.com" in link:
-            return link.rstrip("/").split("/")[-1]
-    return ""
-
-import re
-
-def extract_username_from_github_url(url):
-    try:
-        parts = url.strip("/").split("/")
-
-        if "github.com" in parts:
-            idx = parts.index("github.com")
-
-            if len(parts) > idx + 1:
-                username = parts[idx + 1]
-
-                if username and username.lower() != "github.com":
-                    return username
-    except:
-        pass
-
-    return None
-
-def normalize_github_username(github_field, links):
-    # STEP 1: Extract from links FIRST (most reliable)
-    for link in links:
-        if "github.com" in link:
-            username = extract_username_from_github_url(link)
-            if username:
-                return username
-
-    # STEP 2: Fallback to LLM output
-    if github_field:
-        github_field = github_field.strip()
-
-        # Case 1: full URL
-        if "github.com" in github_field:
-            username = extract_username_from_github_url(github_field)
-            if username:
-                return username
-
-        # Case 2: plain username
-        elif github_field.lower() != "github.com":
-            return github_field
-
-    return ""
-
-
-# -------- STEP 2: Send to LLM for structured extraction --------
-def extract_entities_with_llm(resume_text):
-    prompt = f"""
-You are an expert resume parser.
-
-Extract the following details from the resume text:
-- Name
-- GitHub username or link (if available)
-- Skills (as a list of technologies)
-- Projects (short names or descriptions)
-
-Return only raw JSON.
-Do NOT include markdown formatting, backticks, or explanations. 
-
-Return ONLY valid JSON in this format:
-
-{{
-  "name": "",
-  "github": "",
-  "skills": [],
-  "projects": []
-}}
-
-Resume Text:
-{resume_text}
+Flow:
+1. Extract text + links from PDF
+2. Run LLM entity extraction
+3. Normalize GitHub username
+4. Fetch GitHub repos
+5. Select top repos (currently basic)
 """
 
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    )
+import json
 
-    output = response.choices[0].message.content
-
-    return output
-
-
-# -------- Clean LLM Output --------
-def clean_json_output(output):
-    output = output.strip()
-
-    if output.startswith("```"):
-        output = output.split("```")[1]
-        if output.startswith("json"):
-            output = output[4:]
-    
-    return output.strip()
-    
+from data_pipeline.pdf_extractor import extract_text_from_pdf, extract_links_from_pdf
+from data_pipeline.entity_parser import extract_entities_with_llm, clean_json_output
+from data_pipeline.github_finder import normalize_github_username
+from github_utils import fetch_github_repos
+from vitality_audit.repo_selector import select_top_repos
+from vitality_audit.pulse_checker import run_pulse_check
 
 
-# -------- MAIN EXECUTION --------
 if __name__ == "__main__":
     pdf_path = "resume1.pdf"
 
@@ -167,7 +43,6 @@ if __name__ == "__main__":
     try:
         parsed = json.loads(cleaned)
 
-        # -------- NEW: Fix GitHub using links --------
         github_username = normalize_github_username(parsed.get("github"), links)
         parsed["github"] = github_username
 
@@ -176,26 +51,32 @@ if __name__ == "__main__":
 
     except:
         print("\n⚠️ JSON parsing failed. Raw output shown above.")
+        parsed = {}
+
+    github_username = parsed.get("github")
+
+    if github_username:
+        print("\n Fetching GitHub repositories...")
+        print("\n Final GitHub Username:", github_username)
+
+        repos = fetch_github_repos(github_username)
+
+        print(f"\n Total Repositories Found: {len(repos)}\n")
+
+        print("\n Selecting top relevant repositories...\n")
+
+        top_repos = select_top_repos(repos, parsed, k=3)
+
+        print(json.dumps(top_repos, indent=2))
+
+    else:
+        print("\n No GitHub username found")
 
 
-github_username = parsed.get("github")
+    print("\n Running Pulse Check...\n")
 
-if github_username:
-    print("\n Fetching GitHub repositories...")
-    print("\n Final GitHub Username:", github_username)
+    pulse_results = run_pulse_check(links)
 
-    repos = fetch_github_repos(github_username)
-
-    print(f"\n Total Repositories Found: {len(repos)}\n")
-
-    # STEP 1: Select top relevant repos
-    print("\n Selecting top relevant repositories...\n")
-
-    top_repos = select_top_repos(repos, parsed, k=3)
-
-    # STEP 2: Print selected repos (instead of raw repos)
-    import json
-    print(json.dumps(top_repos, indent=2))
-
-else:
-    print("\n No GitHub username found")
+    print("\n Pulse Check Results:")
+    for r in pulse_results:
+        print(r)
