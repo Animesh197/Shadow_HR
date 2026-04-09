@@ -9,6 +9,50 @@ Now includes:
 - Skill-based fallback
 """
 
+
+# helper function for recency score
+from datetime import datetime, timezone
+
+from datetime import datetime, timezone
+
+def get_recency_weight(pushed_at):
+    if not pushed_at:
+        return 0
+
+    try:
+        pushed_date = datetime.strptime(pushed_at, "%Y-%m-%dT%H:%M:%SZ")
+        pushed_date = pushed_date.replace(tzinfo=timezone.utc)
+
+        now = datetime.now(timezone.utc)
+        days_diff = (now - pushed_date).days
+
+        if days_diff < 30:
+            return 5
+        elif days_diff < 90:
+            return 3
+        elif days_diff < 180:
+            return 2
+        else:
+            return 0
+    except:
+        return 0
+
+
+def compute_repo_score(repo):
+    stars = repo.get("stars", 0)
+    recency = get_recency_weight(repo.get("pushed_at"))
+    live_demo = repo.get("live_demo", False)
+
+    score = (stars * 2) + recency
+
+    if live_demo:
+        score += 5
+
+    return score
+
+
+
+
 def normalize(text):
     return text.lower().replace(" ", "").replace("-", "").replace("_", "")
 
@@ -82,10 +126,16 @@ def get_skill_based_repos(repos, skills, exclude_names, k):
         if repo["name"] in exclude_names:
             continue
 
-        score = score_repo_by_skills(repo, skills)
+        skill_score = score_repo_by_skills(repo, skills)
+        repo["live_demo"] = False  # fallback repos don't have mapping
+
+        final_score = skill_score + compute_repo_score(repo)
 
         repo_copy = repo.copy()
-        repo_copy["score"] = score
+        repo_copy["score"] = final_score
+
+        # repo_copy = repo.copy()
+        # repo_copy["score"] = score
 
         scored.append(repo_copy)
 
@@ -131,8 +181,12 @@ def select_top_repos(repos, parsed_data, pulse_results, k=3):
                 if repo["name"] == p["repo"]:
                     repo["live_demo"] = True
 
-    # Sort → live demo first
-    matched_repos.sort(key=lambda x: x.get("live_demo", False), reverse=True)
+    # Compute scores
+    for repo in matched_repos:
+        repo["score"] = compute_repo_score(repo)
+
+    # Sort by score
+    matched_repos.sort(key=lambda x: x["score"], reverse=True)
 
     # STEP 4: Build final list
     final_repos = matched_repos.copy()
@@ -169,3 +223,5 @@ def select_top_repos(repos, parsed_data, pulse_results, k=3):
     print(audit_signals)
 
     return final_repos
+
+

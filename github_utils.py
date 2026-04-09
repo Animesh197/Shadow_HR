@@ -20,7 +20,9 @@ def fetch_github_repos(username):
             "name": repo.get("name"),
             "language": repo.get("language"),
             "topics": repo.get("topics"),
-            "description": repo.get("description")
+            "description": repo.get("description"),
+            "stars": repo.get("stargazers_count", 0),
+            "pushed_at": repo.get("pushed_at")
         })
     print([repo['name'] for repo in repos])
     return repos
