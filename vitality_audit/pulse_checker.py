@@ -1,9 +1,8 @@
 """
 Feature 4: Pulse Checker
 
-- Asynchronously checks if project/demo links are alive
-- Uses HEAD requests for speed
-- Returns structured result (alive/dead/status)
+- Checks if links are alive
+- Uses async for speed
 """
 
 import asyncio
@@ -12,12 +11,12 @@ import aiohttp
 
 async def check_url(session, url):
     try:
-        async with session.head(url, timeout=5, allow_redirects=True) as response:
-            # print({
-            #     "url": url,
-            #     "status": response.status,
-            #     "alive": 200 <= response.status < 400
-            # })
+        async with session.head(
+            url,
+            timeout=5,
+            allow_redirects=True,
+            ssl=False  # ⚠️ temp fix for SSL
+        ) as response:
             return {
                 "url": url,
                 "status": response.status,

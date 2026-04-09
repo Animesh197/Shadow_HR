@@ -3,10 +3,14 @@ Main pipeline runner
 
 Flow:
 1. Extract text + links from PDF
-2. Run LLM entity extraction
-3. Normalize GitHub username
-4. Fetch GitHub repos
-5. Select top repos (currently basic)
+2. Run Pulse Check on links
+3. Run LLM entity extraction
+4. Normalize GitHub username
+5. Fetch GitHub repos
+6. Select top repos using:
+   - project matching
+   - live demo boost
+   - skill fallback
 """
 
 import json
@@ -31,6 +35,14 @@ if __name__ == "__main__":
     print("\n Links Found:")
     for l in links:
         print(l)
+
+    # NEW: Pulse Check
+    print("\n Running Pulse Check...\n")
+    pulse_results = run_pulse_check(links)
+
+    print("\n Pulse Check Results:")
+    for r in pulse_results:
+        print(r)
 
     print("\n Sending to LLM...")
     result = extract_entities_with_llm(text)
@@ -65,18 +77,11 @@ if __name__ == "__main__":
 
         print("\n Selecting top relevant repositories...\n")
 
-        top_repos = select_top_repos(repos, parsed, k=3)
+        # UPDATED: passing pulse_results
+        top_repos = select_top_repos(repos, parsed, pulse_results, k=3)
 
+        print("\n Final Output:")
         print(json.dumps(top_repos, indent=2))
 
     else:
         print("\n No GitHub username found")
-
-
-    print("\n Running Pulse Check...\n")
-
-    pulse_results = run_pulse_check(links)
-
-    print("\n Pulse Check Results:")
-    for r in pulse_results:
-        print(r)

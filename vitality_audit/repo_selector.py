@@ -1,38 +1,57 @@
 """
 Advanced Repo Selection Engine
 
-Features:
-1. Project ↔ Repo matching with tracking
-2. Ratio-based penalty system
-3. Mandatory inclusion of matched repos
-4. Skill-based fallback to fill remaining slots
-5. Stores audit signals for future scoring
+Now includes:
+- Project ↔ Repo matching
+- Live demo detection (via pulse check)
+- Ratio-based penalty
+- Mandatory inclusion of matched repos
+- Skill-based fallback
 """
 
 def normalize(text):
     return text.lower().replace(" ", "").replace("-", "").replace("_", "")
 
 
-def match_projects_with_repos(repos, projects):
+# NEW: Check if project has live demo
+def check_live_demo(project, pulse_results):
+    proj_norm = normalize(project)
+
+    for result in pulse_results:
+        if not result.get("alive"):
+            continue
+
+        url = result.get("url", "").lower()
+
+        if proj_norm in url:
+            return True
+
+    return False
+
+
+def match_projects_with_repos(repos, projects, pulse_results):
     matched_repos = []
     project_status = []
 
-    normalized_projects = [normalize(p) for p in projects]
-
-    for i, proj in enumerate(projects):
-        proj_norm = normalized_projects[i]
+    for proj in projects:
+        proj_norm = normalize(proj)
         found = False
 
         for repo in repos:
             repo_name_norm = normalize(repo["name"])
 
             if proj_norm in repo_name_norm:
+                live_demo = check_live_demo(proj, pulse_results)
+
                 matched_repos.append(repo)
+
                 project_status.append({
                     "project": proj,
                     "status": "found",
-                    "repo": repo["name"]
+                    "repo": repo["name"],
+                    "live_demo": live_demo
                 })
+
                 found = True
                 break
 
@@ -47,12 +66,10 @@ def match_projects_with_repos(repos, projects):
 
 def score_repo_by_skills(repo, skills):
     score = 0
-
     repo_lang = (repo.get("language") or "").lower()
-    skills_lower = [s.lower() for s in skills]
 
-    for skill in skills_lower:
-        if skill in repo_lang:
+    for skill in skills:
+        if skill.lower() in repo_lang:
             score += 2
 
     return score
@@ -69,6 +86,7 @@ def get_skill_based_repos(repos, skills, exclude_names, k):
 
         repo_copy = repo.copy()
         repo_copy["score"] = score
+
         scored.append(repo_copy)
 
     scored.sort(key=lambda x: x["score"], reverse=True)
@@ -76,40 +94,49 @@ def get_skill_based_repos(repos, skills, exclude_names, k):
     return scored[:k]
 
 
-def select_top_repos(repos, parsed_data, k=3):
+def select_top_repos(repos, parsed_data, pulse_results, k=3):
 
     projects = parsed_data.get("projects", [])
     skills = parsed_data.get("skills", [])
 
-    # STEP 1: Match projects
-    matched_repos, project_status = match_projects_with_repos(repos, projects)
+    # STEP 1: Match projects + live demo
+    matched_repos, project_status = match_projects_with_repos(
+        repos, projects, pulse_results
+    )
 
     print("\n Project Matching Status:")
     for p in project_status:
         print(p)
 
+    # STEP 2: Ratio-based penalty
     total_projects = len(projects)
     matched_count = len(matched_repos)
 
-    # STEP 2: Ratio-based penalty
-    penalty_flag = False
-    match_ratio = 0
+    match_ratio = matched_count / total_projects if total_projects else 0
+    penalty_flag = match_ratio < 0.5 if total_projects else False
 
-    if total_projects > 0:
-        match_ratio = matched_count / total_projects
+    if penalty_flag:
+        print("\n⚠️ Low project verification ratio → penalty applied")
 
-        if match_ratio < 0.5:
-            penalty_flag = True
-            print("\n⚠️ Low project verification ratio → penalty applied")
+    if matched_count == 0:
+        print("\n⚠️ Claimed projects not found on GitHub")
 
-    # STEP 3: Start building final repo list
-    final_repos = []
-
-    # Add matched repos first (MANDATORY)
+    # STEP 3: Boost repos with live demo
     for repo in matched_repos:
-        final_repos.append(repo)
+        repo["live_demo"] = False
 
-    # STEP 4: Fill remaining slots using skill-based selection
+    for p in project_status:
+        if p["status"] == "found" and p.get("live_demo"):
+            for repo in matched_repos:
+                if repo["name"] == p["repo"]:
+                    repo["live_demo"] = True
+
+    # Sort → live demo first
+    matched_repos.sort(key=lambda x: x.get("live_demo", False), reverse=True)
+
+    # STEP 4: Build final list
+    final_repos = matched_repos.copy()
+
     remaining_slots = k - len(final_repos)
 
     if remaining_slots > 0:
@@ -124,14 +151,10 @@ def select_top_repos(repos, parsed_data, k=3):
 
         final_repos.extend(skill_repos)
 
-    # STEP 5: If no matched repos at all
-    if matched_count == 0:
-        print("\n⚠️ Claimed projects not found on GitHub")
-
     print("\n Final Selected Repositories:")
     print([r["name"] for r in final_repos])
 
-    # STEP 6: Store audit signals (VERY IMPORTANT for later)
+    # STEP 5: Audit signals
     audit_signals = {
         "total_projects": total_projects,
         "matched_projects": matched_count,
