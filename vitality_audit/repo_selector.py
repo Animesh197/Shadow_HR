@@ -1,20 +1,24 @@
 """
 Advanced Repo Selection Engine
 
-Now includes:
+Includes:
 - Project ↔ Repo matching
-- Live demo detection (via pulse check)
+- Live demo detection
 - Ratio-based penalty
-- Mandatory inclusion of matched repos
-- Skill-based fallback
+- Infra analysis (docker, ci, dependencies)
+- Score-based ranking (stars + recency + infra + live demo)
 """
 
-
-# helper function for recency score
+from vitality_audit.infra_analyzer import check_repo_infra
 from datetime import datetime, timezone
 
-from datetime import datetime, timezone
 
+# ---------------- NORMALIZATION ----------------
+def normalize(text):
+    return text.lower().replace(" ", "").replace("-", "").replace("_", "")
+
+
+# ---------------- RECENCY ----------------
 def get_recency_weight(pushed_at):
     if not pushed_at:
         return 0
@@ -38,12 +42,31 @@ def get_recency_weight(pushed_at):
         return 0
 
 
+# ---------------- INFRA SCORE ----------------
+def compute_infra_score(repo):
+    infra = repo.get("infra", {})
+
+    score = 0
+
+    if infra.get("has_docker"):
+        score += 3
+    if infra.get("has_ci"):
+        score += 2
+    if infra.get("has_dependencies"):
+        score += 2
+
+    return score
+
+
+# ---------------- FINAL SCORE ----------------
 def compute_repo_score(repo):
     stars = repo.get("stars", 0)
     recency = get_recency_weight(repo.get("pushed_at"))
     live_demo = repo.get("live_demo", False)
 
-    score = (stars * 2) + recency
+    infra_score = compute_infra_score(repo)
+
+    score = (stars * 2) + recency + infra_score
 
     if live_demo:
         score += 5
@@ -51,13 +74,7 @@ def compute_repo_score(repo):
     return score
 
 
-
-
-def normalize(text):
-    return text.lower().replace(" ", "").replace("-", "").replace("_", "")
-
-
-# NEW: Check if project has live demo
+# ---------------- LIVE DEMO ----------------
 def check_live_demo(project, pulse_results):
     proj_norm = normalize(project)
 
@@ -73,6 +90,7 @@ def check_live_demo(project, pulse_results):
     return False
 
 
+# ---------------- PROJECT MATCHING ----------------
 def match_projects_with_repos(repos, projects, pulse_results):
     matched_repos = []
     project_status = []
@@ -108,6 +126,7 @@ def match_projects_with_repos(repos, projects, pulse_results):
     return matched_repos, project_status
 
 
+# ---------------- SKILL SCORING ----------------
 def score_repo_by_skills(repo, skills):
     score = 0
     repo_lang = (repo.get("language") or "").lower()
@@ -119,6 +138,7 @@ def score_repo_by_skills(repo, skills):
     return score
 
 
+# ---------------- SKILL FALLBACK ----------------
 def get_skill_based_repos(repos, skills, exclude_names, k):
     scored = []
 
@@ -126,16 +146,13 @@ def get_skill_based_repos(repos, skills, exclude_names, k):
         if repo["name"] in exclude_names:
             continue
 
-        skill_score = score_repo_by_skills(repo, skills)
-        repo["live_demo"] = False  # fallback repos don't have mapping
-
-        final_score = skill_score + compute_repo_score(repo)
-
         repo_copy = repo.copy()
-        repo_copy["score"] = final_score
 
-        # repo_copy = repo.copy()
-        # repo_copy["score"] = score
+        skill_score = score_repo_by_skills(repo_copy, skills)
+        repo_copy["live_demo"] = False  # fallback repos
+
+        final_score = skill_score + compute_repo_score(repo_copy)
+        repo_copy["score"] = final_score
 
         scored.append(repo_copy)
 
@@ -144,12 +161,23 @@ def get_skill_based_repos(repos, skills, exclude_names, k):
     return scored[:k]
 
 
+# ---------------- MAIN SELECTOR ----------------
 def select_top_repos(repos, parsed_data, pulse_results, k=3):
 
     projects = parsed_data.get("projects", [])
     skills = parsed_data.get("skills", [])
 
-    # STEP 1: Match projects + live demo
+    # ✅ STEP 0: Attach infra signals ONCE
+    for repo in repos:
+        owner = repo.get("owner")
+        name = repo.get("name")
+
+        if owner and name:
+            repo["infra"] = check_repo_infra(owner, name)
+        else:
+            repo["infra"] = {}
+
+    # STEP 1: Project matching
     matched_repos, project_status = match_projects_with_repos(
         repos, projects, pulse_results
     )
@@ -171,7 +199,7 @@ def select_top_repos(repos, parsed_data, pulse_results, k=3):
     if matched_count == 0:
         print("\n⚠️ Claimed projects not found on GitHub")
 
-    # STEP 3: Boost repos with live demo
+    # STEP 3: Assign live_demo flags
     for repo in matched_repos:
         repo["live_demo"] = False
 
@@ -181,14 +209,13 @@ def select_top_repos(repos, parsed_data, pulse_results, k=3):
                 if repo["name"] == p["repo"]:
                     repo["live_demo"] = True
 
-    # Compute scores
+    # STEP 4: Score matched repos
     for repo in matched_repos:
         repo["score"] = compute_repo_score(repo)
 
-    # Sort by score
     matched_repos.sort(key=lambda x: x["score"], reverse=True)
 
-    # STEP 4: Build final list
+    # STEP 5: Build final list
     final_repos = matched_repos.copy()
 
     remaining_slots = k - len(final_repos)
@@ -208,7 +235,7 @@ def select_top_repos(repos, parsed_data, pulse_results, k=3):
     print("\n Final Selected Repositories:")
     print([r["name"] for r in final_repos])
 
-    # STEP 5: Audit signals
+    # STEP 6: Audit signals
     audit_signals = {
         "total_projects": total_projects,
         "matched_projects": matched_count,
@@ -223,5 +250,3 @@ def select_top_repos(repos, parsed_data, pulse_results, k=3):
     print(audit_signals)
 
     return final_repos
-
-

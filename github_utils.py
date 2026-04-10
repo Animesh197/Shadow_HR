@@ -18,6 +18,7 @@ def fetch_github_repos(username):
     for repo in data:
         repos.append({
             "name": repo.get("name"),
+            "owner": repo.get("owner", {}).get("login"),
             "language": repo.get("language"),
             "topics": repo.get("topics"),
             "description": repo.get("description"),
