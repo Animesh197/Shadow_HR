@@ -7,9 +7,12 @@ Includes:
 - Ratio-based penalty
 - Infra analysis (docker, ci, dependencies)
 - Score-based ranking (stars + recency + infra + live demo)
+- Commit history analysis
 """
 
+
 from vitality_audit.infra_analyzer import check_repo_infra
+from vitality_audit.commit_analyzer import analyze_repo_commits
 from datetime import datetime, timezone
 
 
@@ -58,15 +61,16 @@ def compute_infra_score(repo):
     return score
 
 
-# ---------------- FINAL SCORE ----------------
+# ---------------- FINAL SCORE (UPDATED) ----------------
 def compute_repo_score(repo):
     stars = repo.get("stars", 0)
     recency = get_recency_weight(repo.get("pushed_at"))
     live_demo = repo.get("live_demo", False)
 
     infra_score = compute_infra_score(repo)
+    commit_score = repo.get("commit_score", 0)  # ✅ NEW
 
-    score = (stars * 2) + recency + infra_score
+    score = (stars * 2) + recency + infra_score + commit_score
 
     if live_demo:
         score += 5
@@ -167,15 +171,25 @@ def select_top_repos(repos, parsed_data, pulse_results, k=3):
     projects = parsed_data.get("projects", [])
     skills = parsed_data.get("skills", [])
 
-    # ✅ STEP 0: Attach infra signals ONCE
+    # ✅ STEP 0: Attach infra + commit signals
     for repo in repos:
         owner = repo.get("owner")
         name = repo.get("name")
 
+        # Infra
         if owner and name:
             repo["infra"] = check_repo_infra(owner, name)
         else:
             repo["infra"] = {}
+
+        # ✅ NEW: Commit Analysis
+        if owner and name:
+            commit_data = analyze_repo_commits(owner, name)
+            repo["commit_score"] = commit_data.get("commit_score", 0)
+            repo["commit_verdict"] = commit_data.get("verdict", "")
+        else:
+            repo["commit_score"] = 0
+            repo["commit_verdict"] = "No data"
 
     # STEP 1: Project matching
     matched_repos, project_status = match_projects_with_repos(

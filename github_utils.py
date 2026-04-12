@@ -1,14 +1,20 @@
 import requests
+import os
 
 def fetch_github_repos(username):
 
     url = f"https://api.github.com/users/{username}/repos"
     print(f"-------------------{url}")
 
-    response = requests.get(url)
+    headers = {
+        "Authorization": f"token {os.getenv('GITHUB_TOKEN')}"
+    }
+
+    response = requests.get(url, headers=headers)
 
     if response.status_code != 200:
-        print(" Failed to fetch GitHub data")
+        print(f" GitHub API Status: {response.status_code}")
+        print(" GitHub API Response:", response.text)
         return []
 
     data = response.json()
@@ -25,8 +31,6 @@ def fetch_github_repos(username):
             "stars": repo.get("stargazers_count", 0),
             "pushed_at": repo.get("pushed_at")
         })
+
     print([repo['name'] for repo in repos])
     return repos
-
-
-# fetches the githup repo and then send it for the selection

@@ -8,8 +8,16 @@ Feature 4: Pulse Checker
 import asyncio
 import aiohttp
 
+# def clean_url(url):
+#     # Fix GitHub .git links
+#     if "github.com" in url and url.endswith(".git"):
+#         url = url.replace(".git", "")
+
+#     return url
+
 
 async def check_url(session, url):
+    # url = clean_url(url)
     try:
         async with session.head(
             url,
