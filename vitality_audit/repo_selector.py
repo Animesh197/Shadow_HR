@@ -22,6 +22,18 @@ def normalize(text):
 
 
 # ---------------- NEW: VALID DEMO CHECK ----------------
+def is_demo_url_valid(url, demo_results):
+    if not url:
+        return False
+
+    url_clean = url.lower().rstrip("/")
+    for d in demo_results:
+        if d.get("url", "").lower().rstrip("/") == url_clean:
+            return d.get("score", 0) > 0
+
+    return False
+
+
 def check_valid_demo_for_project(project, demo_results):
     proj_norm = normalize(project)
 
@@ -117,8 +129,11 @@ def match_projects_with_repos(repos, projects, pulse_results, demo_results):
 
             if proj_norm in repo_name_norm:
 
-                # ✅ UPDATED DEMO LOGIC
-                live_demo = check_valid_demo_for_project(proj, demo_results)
+                # ✅ Check if repo homepage is a demo OR if proj appears in ANY validated URL
+                repo_demo = repo.get("live_demo", False)
+                proj_demo = check_valid_demo_for_project(proj, demo_results)
+
+                live_demo = repo_demo or proj_demo
 
                 matched_repos.append(repo)
 
@@ -164,7 +179,7 @@ def get_skill_based_repos(repos, skills, exclude_names, k):
         repo_copy = repo.copy()
 
         skill_score = score_repo_by_skills(repo_copy, skills)
-        repo_copy["live_demo"] = False
+        # live_demo is already attached in Step 0
 
         final_score = skill_score + compute_repo_score(repo_copy)
         repo_copy["score"] = final_score
@@ -202,6 +217,9 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
             repo["commit_score"] = 0
             repo["commit_verdict"] = "No data"
 
+        # Live Demo (NEW: Attach early based on homepage)
+        repo["live_demo"] = is_demo_url_valid(repo.get("homepage"), demo_results)
+
     # STEP 1: Project matching
     matched_repos, project_status = match_projects_with_repos(
         repos, projects, pulse_results, demo_results
@@ -224,10 +242,7 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
     if matched_count == 0:
         print("\n⚠️ Claimed projects not found on GitHub")
 
-    # STEP 3: Assign live_demo flags
-    for repo in matched_repos:
-        repo["live_demo"] = False
-
+    # STEP 3: Augment live_demo flags (Matched repositories only)
     for p in project_status:
         if p["status"] == "found" and p.get("live_demo"):
             for repo in matched_repos:
