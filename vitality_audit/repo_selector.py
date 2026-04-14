@@ -3,22 +3,39 @@ Advanced Repo Selection Engine
 
 Includes:
 - Project ↔ Repo matching
-- Live demo detection
+- Live demo detection (UPDATED: uses validated demo URLs)
 - Ratio-based penalty
 - Infra analysis (docker, ci, dependencies)
 - Score-based ranking (stars + recency + infra + live demo)
 - Commit history analysis
 """
 
-
 from vitality_audit.infra_analyzer import check_repo_infra
 from vitality_audit.commit_analyzer import analyze_repo_commits
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 
 # ---------------- NORMALIZATION ----------------
 def normalize(text):
     return text.lower().replace(" ", "").replace("-", "").replace("_", "")
+
+
+# ---------------- NEW: VALID DEMO CHECK ----------------
+def check_valid_demo_for_project(project, demo_results):
+    proj_norm = normalize(project)
+
+    for d in demo_results:
+        if d.get("score", 0) <= 0:
+            continue
+
+        url = d.get("url", "")
+        url_norm = normalize(url)
+
+        if proj_norm in url_norm:
+            return True
+
+    return False
 
 
 # ---------------- RECENCY ----------------
@@ -61,14 +78,14 @@ def compute_infra_score(repo):
     return score
 
 
-# ---------------- FINAL SCORE (UPDATED) ----------------
+# ---------------- FINAL SCORE ----------------
 def compute_repo_score(repo):
     stars = repo.get("stars", 0)
     recency = get_recency_weight(repo.get("pushed_at"))
     live_demo = repo.get("live_demo", False)
 
     infra_score = compute_infra_score(repo)
-    commit_score = repo.get("commit_score", 0)  # ✅ NEW
+    commit_score = repo.get("commit_score", 0)
 
     score = (stars * 2) + recency + infra_score + commit_score
 
@@ -78,24 +95,16 @@ def compute_repo_score(repo):
     return score
 
 
-# ---------------- LIVE DEMO ----------------
-def check_live_demo(project, pulse_results):
-    proj_norm = normalize(project)
-
-    for result in pulse_results:
-        if not result.get("alive"):
-            continue
-
-        url = result.get("url", "").lower()
-
-        if proj_norm in url:
-            return True
-
-    return False
+# ---------------- DOMAIN UTILS ----------------
+def extract_domain(url):
+    try:
+        return urlparse(url).netloc.replace("www.", "")
+    except:
+        return ""
 
 
 # ---------------- PROJECT MATCHING ----------------
-def match_projects_with_repos(repos, projects, pulse_results):
+def match_projects_with_repos(repos, projects, pulse_results, demo_results):
     matched_repos = []
     project_status = []
 
@@ -107,7 +116,9 @@ def match_projects_with_repos(repos, projects, pulse_results):
             repo_name_norm = normalize(repo["name"])
 
             if proj_norm in repo_name_norm:
-                live_demo = check_live_demo(proj, pulse_results)
+
+                # ✅ UPDATED DEMO LOGIC
+                live_demo = check_valid_demo_for_project(proj, demo_results)
 
                 matched_repos.append(repo)
 
@@ -153,7 +164,7 @@ def get_skill_based_repos(repos, skills, exclude_names, k):
         repo_copy = repo.copy()
 
         skill_score = score_repo_by_skills(repo_copy, skills)
-        repo_copy["live_demo"] = False  # fallback repos
+        repo_copy["live_demo"] = False
 
         final_score = skill_score + compute_repo_score(repo_copy)
         repo_copy["score"] = final_score
@@ -166,7 +177,7 @@ def get_skill_based_repos(repos, skills, exclude_names, k):
 
 
 # ---------------- MAIN SELECTOR ----------------
-def select_top_repos(repos, parsed_data, pulse_results, k=3):
+def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
 
     projects = parsed_data.get("projects", [])
     skills = parsed_data.get("skills", [])
@@ -182,7 +193,7 @@ def select_top_repos(repos, parsed_data, pulse_results, k=3):
         else:
             repo["infra"] = {}
 
-        # ✅ NEW: Commit Analysis
+        # Commit Analysis
         if owner and name:
             commit_data = analyze_repo_commits(owner, name)
             repo["commit_score"] = commit_data.get("commit_score", 0)
@@ -193,7 +204,7 @@ def select_top_repos(repos, parsed_data, pulse_results, k=3):
 
     # STEP 1: Project matching
     matched_repos, project_status = match_projects_with_repos(
-        repos, projects, pulse_results
+        repos, projects, pulse_results, demo_results
     )
 
     print("\n Project Matching Status:")

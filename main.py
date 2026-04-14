@@ -3,10 +3,10 @@ Main pipeline runner
 
 Flow:
 1. Extract text + links from PDF
-2. Run Pulse Check on links
-3. Run LLM entity extraction
-4. Normalize GitHub username
-5. Fetch GitHub repos
+2. Run LLM entity extraction
+3. Normalize GitHub username
+4. Fetch GitHub repos
+5. Run Pulse Check (resume links + repo homepages)
 6. Select top repos using:
    - project matching
    - live demo boost
@@ -21,6 +21,7 @@ from data_pipeline.github_finder import normalize_github_username
 from github_utils import fetch_github_repos
 from vitality_audit.repo_selector import select_top_repos
 from vitality_audit.pulse_checker import run_pulse_check
+from validation.demo_url_validator import evaluate_all_urls
 
 
 if __name__ == "__main__":
@@ -36,14 +37,7 @@ if __name__ == "__main__":
     for l in links:
         print(l)
 
-    # NEW: Pulse Check
-    print("\n Running Pulse Check...\n")
-    pulse_results = run_pulse_check(links)
-
-    print("\n Pulse Check Results:")
-    for r in pulse_results:
-        print(r)
-
+    # ---------------- LLM Extraction ----------------
     print("\n Sending to LLM...")
     result = extract_entities_with_llm(text)
 
@@ -65,6 +59,7 @@ if __name__ == "__main__":
         print("\n⚠️ JSON parsing failed. Raw output shown above.")
         parsed = {}
 
+    # ---------------- GitHub Fetch ----------------
     github_username = parsed.get("github")
 
     if github_username:
@@ -75,10 +70,41 @@ if __name__ == "__main__":
 
         print(f"\n Total Repositories Found: {len(repos)}\n")
 
+        # ---------------- Pulse Check (UPDATED) ----------------
+        print("\n Running Pulse Check...\n")
+
+        repo_homepages = []
+
+        for repo in repos:
+            homepage = repo.get("homepage")
+            if homepage:
+                repo_homepages.append(homepage)
+
+        # Combine resume links + repo demo links
+        all_links = links + repo_homepages
+
+        print("\n Checking these links (including repo homepages):")
+        for link in all_links:
+            print(link)
+
+        pulse_results = run_pulse_check(all_links)
+
+        print("\n Pulse Check Results:")
+        for r in pulse_results:
+            print(r)
+
+        
+        print("\n Validating Demo URLs...\n")
+
+        demo_results = evaluate_all_urls(all_links)
+
+        for d in demo_results:
+            print(d)
+
+        # ---------------- Repo Selection ----------------
         print("\n Selecting top relevant repositories...\n")
 
-        # UPDATED: passing pulse_results
-        top_repos = select_top_repos(repos, parsed, pulse_results, k=3)
+        top_repos = select_top_repos(repos, parsed, pulse_results, demo_results, k=3)
 
         print("\n Final Output:")
         print(json.dumps(top_repos, indent=2))

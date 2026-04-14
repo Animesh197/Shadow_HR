@@ -1,4 +1,5 @@
 import requests
+import os
 from datetime import datetime
 
 GITHUB_API = "https://api.github.com"
@@ -6,27 +7,35 @@ GITHUB_API = "https://api.github.com"
 
 # Step 1: Fetch Commit Data from GitHub API
 def fetch_commits(owner, repo, max_commits=100):
-    """
-    Fetch commit history from GitHub
-
-    Why max_commits?
-    - We don't need entire history
-    - Last ~100 commits are enough to detect patterns
-    """
-
     url = f"{GITHUB_API}/repos/{owner}/{repo}/commits"
 
     params = {
         "per_page": max_commits
     }
 
+    headers = {}
+
+    # Add GitHub token if available
+    token = os.getenv("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"token {token}"
+
     try:
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, headers=headers)
+
+        # Handle specific errors
+        if response.status_code == 403:
+            return "RATE_LIMIT"
+
+        if response.status_code == 409:
+            return "EMPTY_REPO"
+
         response.raise_for_status()
         return response.json()
-    except Exception as e:
+
+    except requests.exceptions.RequestException as e:
         print(f"Error fetching commits for {repo}: {e}")
-        return []
+        return "ERROR"
 
 
 # Step 2: Extract Commit Dates
@@ -97,7 +106,28 @@ def analyze_commit_pattern(dates):
         "verdict": "Healthy iterative development"
     }
 
+
 def analyze_repo_commits(owner, repo):
     commits = fetch_commits(owner, repo)
+
+    # Handle special cases
+    if commits == "RATE_LIMIT":
+        return {
+            "commit_score": 0,
+            "verdict": "Rate limit exceeded — commit data unavailable"
+        }
+
+    if commits == "EMPTY_REPO":
+        return {
+            "commit_score": 5,
+            "verdict": "Empty repository — no commits"
+        }
+
+    if commits == "ERROR":
+        return {
+            "commit_score": 0,
+            "verdict": "Error fetching commit data"
+        }
+
     dates = extract_commit_dates(commits)
     return analyze_commit_pattern(dates)

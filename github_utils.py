@@ -29,8 +29,18 @@ def fetch_github_repos(username):
             "topics": repo.get("topics"),
             "description": repo.get("description"),
             "stars": repo.get("stargazers_count", 0),
-            "pushed_at": repo.get("pushed_at")
+            "pushed_at": repo.get("pushed_at"),
+            "homepage": repo.get("homepage")
+
         })
 
     print([repo['name'] for repo in repos])
+    return repos
+
+    # optional (for debugging)
+    print("\n Repo Homepages:")
+    for repo in repos:
+        if repo.get("homepage"):
+            print(f"{repo['name']} → {repo['homepage']}")
+
     return repos
