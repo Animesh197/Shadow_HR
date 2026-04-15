@@ -2,6 +2,7 @@
 
 import requests
 from urllib.parse import urlparse
+from validation.browser_validator import fetch_rendered_html
 
 DEMO_HOSTING = [
     "vercel.app", "netlify.app", "onrender.com",
@@ -70,11 +71,22 @@ def evaluate_demo_url(url):
     url_type = classify_url(url)
     result["type"] = url_type
 
-    if url_type == "code":
-        result["remarks"] = "Code repository, not a demo"
+    if url_type in ["code", "video_demo"]:
+        if url_type == "code":
+            result["remarks"] = "Code repository, not a demo"
+        else:
+            result["score"] = 2
+            result["remarks"] = "Video demo available"
+
         return result
 
     status, html = check_url_status(url)
+    # NEW: fallback to Playwright if HTML is weak
+    if html and len(html) < 1000:
+        rendered_html = fetch_rendered_html(url)
+        if rendered_html:
+            html = rendered_html
+
     result["status"] = status
 
     if status is None:
@@ -95,6 +107,14 @@ def evaluate_demo_url(url):
 
     # Hosted demo
     interactive = detect_interactivity(html)
+
+    # If still not interactive → try browser rendering
+    if not interactive:
+        rendered_html = fetch_rendered_html(url)
+
+        if rendered_html:
+            interactive = detect_interactivity(rendered_html)
+            html = rendered_html  # update for scoring
     result["is_interactive"] = interactive
 
     if interactive:

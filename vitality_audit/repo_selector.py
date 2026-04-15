@@ -1,36 +1,44 @@
 """
 Advanced Repo Selection Engine
-
-Includes:
-- Project ↔ Repo matching
-- Live demo detection (UPDATED: uses validated demo URLs)
-- Ratio-based penalty
-- Infra analysis (docker, ci, dependencies)
-- Score-based ranking (stars + recency + infra + live demo)
-- Commit history analysis
 """
 
 from vitality_audit.infra_analyzer import check_repo_infra
 from vitality_audit.commit_analyzer import analyze_repo_commits
 from vitality_audit.readme_analyzer import analyze_readme_alignment
+from validation.browser_validator import fetch_rendered_html
+from scoring.verification_index import compute_verification_index
 from datetime import datetime, timezone
 from urllib.parse import urlparse
-# re
+
 
 # ---------------- NORMALIZATION ----------------
 def normalize(text):
     return text.lower().replace(" ", "").replace("-", "").replace("_", "")
 
 
-# ---------------- NEW: VALID DEMO CHECK ----------------
+# ---------------- DOMAIN UTILS ----------------
+def extract_domain(url):
+    try:
+        return urlparse(url).netloc.replace("www.", "")
+    except:
+        return ""
+
+
+# ---------------- DEMO VALIDATION ----------------
 def is_demo_url_valid(url, demo_results):
     if not url:
         return False
 
-    url_clean = url.lower().rstrip("/")
+    url_domain = extract_domain(url)
+
     for d in demo_results:
-        if d.get("url", "").lower().rstrip("/") == url_clean:
-            return d.get("score", 0) > 0
+        if d.get("score", 0) <= 0:
+            continue
+
+        d_domain = extract_domain(d.get("url", ""))
+
+        if url_domain and url_domain == d_domain:
+            return True
 
     return False
 
@@ -42,8 +50,7 @@ def check_valid_demo_for_project(project, demo_results):
         if d.get("score", 0) <= 0:
             continue
 
-        url = d.get("url", "")
-        url_norm = normalize(url)
+        url_norm = normalize(d.get("url", ""))
 
         if proj_norm in url_norm:
             return True
@@ -80,7 +87,6 @@ def compute_infra_score(repo):
     infra = repo.get("infra", {})
 
     score = 0
-
     if infra.get("has_docker"):
         score += 3
     if infra.get("has_ci"):
@@ -95,26 +101,32 @@ def compute_infra_score(repo):
 def compute_repo_score(repo):
     stars = repo.get("stars", 0)
     recency = get_recency_weight(repo.get("pushed_at"))
+    infra = compute_infra_score(repo)
+    commit = repo.get("commit_score", 0)
+    alignment = repo.get("alignment_score", 0)
     live_demo = repo.get("live_demo", False)
+    demo_quality = repo.get("demo_score", 0)
 
-    infra_score = compute_infra_score(repo)
-    commit_score = repo.get("commit_score", 0)
-    alignment_score = repo.get("alignment_score", 0)  
+    stars_score = min(stars * 2, 10)
+    recency_score = min(recency, 10)
+    infra_score = min(infra, 10)
+    commit_score = commit * 0.5
+    alignment_score = alignment * 0.4
 
-    score = (stars * 2) + recency + infra_score + commit_score + (alignment_score * 0.5)
+    demo_score = 10 if live_demo else 0
+    demo_quality_score = demo_quality * 2
 
-    if live_demo:
-        score += 5
+    score = (
+        stars_score +
+        recency_score +
+        infra_score +
+        commit_score +
+        alignment_score +
+        demo_score +
+        demo_quality_score
+    )
 
-    return score
-
-
-# ---------------- DOMAIN UTILS ----------------
-def extract_domain(url):
-    try:
-        return urlparse(url).netloc.replace("www.", "")
-    except:
-        return ""
+    return round(score, 2)
 
 
 # ---------------- PROJECT MATCHING ----------------
@@ -131,11 +143,12 @@ def match_projects_with_repos(repos, projects, pulse_results, demo_results):
 
             if proj_norm in repo_name_norm:
 
-                # ✅ Check if repo homepage is a demo OR if proj appears in ANY validated URL
-                repo_demo = repo.get("live_demo", False)
+                homepage_demo = is_demo_url_valid(repo.get("homepage"), demo_results)
                 proj_demo = check_valid_demo_for_project(proj, demo_results)
 
-                live_demo = repo_demo or proj_demo
+                live_demo = homepage_demo or proj_demo
+
+                repo["live_demo"] = live_demo
 
                 matched_repos.append(repo)
 
@@ -181,11 +194,9 @@ def get_skill_based_repos(repos, skills, exclude_names, k):
         repo_copy = repo.copy()
 
         skill_score = score_repo_by_skills(repo_copy, skills)
-        # live_demo is already attached in Step 0
-
         final_score = skill_score + compute_repo_score(repo_copy)
-        repo_copy["score"] = final_score
 
+        repo_copy["score"] = final_score
         scored.append(repo_copy)
 
     scored.sort(key=lambda x: x["score"], reverse=True)
@@ -199,39 +210,43 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
     projects = parsed_data.get("projects", [])
     skills = parsed_data.get("skills", [])
 
-    # ✅ STEP 0: Attach infra + commit signals
+    # STEP 0: enrich all repos
     for repo in repos:
         owner = repo.get("owner")
         name = repo.get("name")
 
         # Infra
-        if owner and name:
-            repo["infra"] = check_repo_infra(owner, name)
-        else:
-            repo["infra"] = {}
+        repo["infra"] = check_repo_infra(owner, name) if owner and name else {}
 
-        # Commit Analysis
-        if owner and name:
-            commit_data = analyze_repo_commits(owner, name)
-            repo["commit_score"] = commit_data.get("commit_score", 0)
-            repo["commit_verdict"] = commit_data.get("verdict", "")
-        else:
-            repo["commit_score"] = 0
-            repo["commit_verdict"] = "No data"
+        # Commit
+        commit_data = analyze_repo_commits(owner, name) if owner and name else {}
+        repo["commit_score"] = commit_data.get("commit_score", 0)
+        repo["commit_verdict"] = commit_data.get("verdict", "")
 
-        # NEW: README Alignment Analysis
-        if owner and name:
-            alignment_data = analyze_readme_alignment(owner, name, repo)
-            repo["alignment_score"] = alignment_data.get("alignment_score", 0)
-            repo["alignment_verdict"] = alignment_data.get("verdict", "")
-        else:
-            repo["alignment_score"] = 0
-            repo["alignment_verdict"] = "No data"
+        # Alignment
+        alignment_data = analyze_readme_alignment(owner, name, repo) if owner and name else {}
+        repo["alignment_score"] = alignment_data.get("alignment_score", 0)
+        repo["alignment_verdict"] = alignment_data.get("verdict", "")
 
-        # Live Demo (NEW: Attach early based on homepage)
+        # Live demo (homepage only)
         repo["live_demo"] = is_demo_url_valid(repo.get("homepage"), demo_results)
 
-    # STEP 1: Project matching
+        # Demo score (ALL repos)
+        demo_score = 0
+        homepage = repo.get("homepage")
+        homepage_domain = extract_domain(homepage)
+
+        for result in demo_results:
+            url = result.get("url", "")
+            url_domain = extract_domain(url)
+
+            if homepage_domain and homepage_domain == url_domain:
+                demo_score = result.get("score", 0)
+                break
+
+        repo["demo_score"] = demo_score
+
+    # STEP 1: match projects
     matched_repos, project_status = match_projects_with_repos(
         repos, projects, pulse_results, demo_results
     )
@@ -240,7 +255,7 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
     for p in project_status:
         print(p)
 
-    # STEP 2: Ratio-based penalty
+    # STEP 2: ratio signals
     total_projects = len(projects)
     matched_count = len(matched_repos)
 
@@ -253,22 +268,14 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
     if matched_count == 0:
         print("\n⚠️ Claimed projects not found on GitHub")
 
-    # STEP 3: Augment live_demo flags (Matched repositories only)
-    for p in project_status:
-        if p["status"] == "found" and p.get("live_demo"):
-            for repo in matched_repos:
-                if repo["name"] == p["repo"]:
-                    repo["live_demo"] = True
-
-    # STEP 4: Score matched repos
+    # STEP 3: score matched repos
     for repo in matched_repos:
         repo["score"] = compute_repo_score(repo)
 
     matched_repos.sort(key=lambda x: x["score"], reverse=True)
 
-    # STEP 5: Build final list
+    # STEP 4: fill remaining slots
     final_repos = matched_repos.copy()
-
     remaining_slots = k - len(final_repos)
 
     if remaining_slots > 0:
@@ -286,7 +293,7 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
     print("\n Final Selected Repositories:")
     print([r["name"] for r in final_repos])
 
-    # STEP 6: Audit signals
+    # STEP 5: audit signals
     audit_signals = {
         "total_projects": total_projects,
         "matched_projects": matched_count,
@@ -300,4 +307,9 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
     print("\n Audit Signals:")
     print(audit_signals)
 
-    return final_repos
+    verification = compute_verification_index(final_repos, audit_signals)
+
+    return {
+        "repos": final_repos,
+        "verification": verification
+    }

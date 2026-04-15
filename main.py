@@ -104,10 +104,10 @@ if __name__ == "__main__":
         # ---------------- Repo Selection ----------------
         print("\n Selecting top relevant repositories...\n")
 
-        top_repos = select_top_repos(repos, parsed, pulse_results, demo_results, k=3)
+        result = select_top_repos(repos, parsed, pulse_results, demo_results, k=3)
 
         print("\n Final Output:")
-        print(json.dumps(top_repos, indent=2))
+        print(json.dumps(result, indent=2))
 
     else:
         print("\n No GitHub username found")
