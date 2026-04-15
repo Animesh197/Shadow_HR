@@ -6,7 +6,9 @@ from vitality_audit.infra_analyzer import check_repo_infra
 from vitality_audit.commit_analyzer import analyze_repo_commits
 from vitality_audit.readme_analyzer import analyze_readme_alignment
 from validation.browser_validator import fetch_rendered_html
-from scoring.verification_index import compute_verification_index
+# from scoring.verification_index import compute_verification_index
+from scoring.verification_index import compute_final_score_v2
+from scoring.confidence_score import compute_confidence_score
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -204,49 +206,105 @@ def get_skill_based_repos(repos, skills, exclude_names, k):
     return scored[:k]
 
 
+
+# ---------------- PREFILTER (NEW) ----------------
+def prefilter_repos(repos, parsed_data, top_n=8):
+    """
+    Improved lightweight filtering before expensive analysis
+    """
+
+    projects = parsed_data.get("projects", [])
+    skills = [s.lower() for s in parsed_data.get("skills", [])]
+
+    scored = []
+
+    for repo in repos:
+        score = 0
+
+        name = repo.get("name", "").lower()
+        language = (repo.get("language") or "").lower()
+        stars = repo.get("stars", 0)
+        pushed_at = repo.get("pushed_at")
+
+        # ---------------- PROJECT MATCH (HIGH WEIGHT) ----------------
+        for proj in projects:
+            if normalize(proj) in normalize(name):
+                score += 10
+
+        # ---------------- SKILL MATCH ----------------
+        if language in skills:
+            score += 5
+
+        # ---------------- STARS ----------------
+        score += min(stars, 5)
+
+        # ---------------- RECENCY ----------------
+        if pushed_at:
+            try:
+                from datetime import datetime
+                days = (datetime.utcnow() - datetime.strptime(pushed_at, "%Y-%m-%dT%H:%M:%SZ")).days
+
+                if days < 30:
+                    score += 5
+                elif days < 90:
+                    score += 3
+                elif days < 180:
+                    score += 1
+            except:
+                pass
+
+        scored.append((repo, score))
+
+    # sort by score
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    selected = [r[0] for r in scored[:top_n]]
+
+    print(f"\n Prefilter selected {len(selected)} repos out of {len(repos)}")
+
+    return selected
+
+
 # ---------------- MAIN SELECTOR ----------------
 def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
 
     projects = parsed_data.get("projects", [])
     skills = parsed_data.get("skills", [])
 
-    # STEP 0: enrich all repos
+    # ---------------- PREFILTER ----------------
+    repos = prefilter_repos(repos, parsed_data, top_n=8)
+
+    print("\n Prefiltered Repos:")
+    print([r["name"] for r in repos])
+
+    # ---------------- ENRICH ----------------
     for repo in repos:
         owner = repo.get("owner")
         name = repo.get("name")
 
-        # Infra
         repo["infra"] = check_repo_infra(owner, name) if owner and name else {}
 
-        # Commit
         commit_data = analyze_repo_commits(owner, name) if owner and name else {}
         repo["commit_score"] = commit_data.get("commit_score", 0)
         repo["commit_verdict"] = commit_data.get("verdict", "")
 
-        # Alignment
         alignment_data = analyze_readme_alignment(owner, name, repo) if owner and name else {}
         repo["alignment_score"] = alignment_data.get("alignment_score", 0)
         repo["alignment_verdict"] = alignment_data.get("verdict", "")
 
-        # Live demo (homepage only)
         repo["live_demo"] = is_demo_url_valid(repo.get("homepage"), demo_results)
 
-        # Demo score (ALL repos)
         demo_score = 0
-        homepage = repo.get("homepage")
-        homepage_domain = extract_domain(homepage)
+        homepage_domain = extract_domain(repo.get("homepage"))
 
         for result in demo_results:
-            url = result.get("url", "")
-            url_domain = extract_domain(url)
-
-            if homepage_domain and homepage_domain == url_domain:
+            if extract_domain(result.get("url", "")) == homepage_domain:
                 demo_score = result.get("score", 0)
                 break
 
         repo["demo_score"] = demo_score
 
-    # STEP 1: match projects
+    # ---------------- PROJECT MATCHING ----------------
     matched_repos, project_status = match_projects_with_repos(
         repos, projects, pulse_results, demo_results
     )
@@ -255,27 +313,36 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
     for p in project_status:
         print(p)
 
-    # STEP 2: ratio signals
+    # ---------------- AUDIT SIGNALS ----------------
     total_projects = len(projects)
     matched_count = len(matched_repos)
 
     match_ratio = matched_count / total_projects if total_projects else 0
-    penalty_flag = match_ratio < 0.5 if total_projects else False
 
-    if penalty_flag:
-        print("\n⚠️ Low project verification ratio → penalty applied")
+    missing_projects_list = [
+        p["project"] for p in project_status if p["status"] == "not_found"
+    ]
 
-    if matched_count == 0:
-        print("\n⚠️ Claimed projects not found on GitHub")
+    audit_signals = {
+        "total_projects": total_projects,
+        "matched_projects": matched_count,
+        "missing_projects": len(missing_projects_list),
+        "missing_projects_list": missing_projects_list
+    }
+    print("\n Missing Projects:")
+    print(missing_projects_list)
 
-    # STEP 3: score matched repos
+    print("\n Audit Signals:")
+    print(audit_signals)
+
+    # ---------------- SCORING ----------------
     for repo in matched_repos:
         repo["score"] = compute_repo_score(repo)
 
     matched_repos.sort(key=lambda x: x["score"], reverse=True)
 
-    # STEP 4: fill remaining slots
     final_repos = matched_repos.copy()
+
     remaining_slots = k - len(final_repos)
 
     if remaining_slots > 0:
@@ -293,23 +360,25 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
     print("\n Final Selected Repositories:")
     print([r["name"] for r in final_repos])
 
-    # STEP 5: audit signals
-    audit_signals = {
-        "total_projects": total_projects,
-        "matched_projects": matched_count,
-        "match_ratio": match_ratio,
-        "penalty_flag": penalty_flag,
-        "missing_projects": [
-            p["project"] for p in project_status if p["status"] == "not_found"
-        ]
-    }
-
-    print("\n Audit Signals:")
-    print(audit_signals)
-
-    verification = compute_verification_index(final_repos, audit_signals)
+    # ---------------- FINAL SCORE ----------------
+    final_score, label, reasons = compute_final_score_v2(final_repos, audit_signals)
+    confidence_score, confidence_label, confidence_reasons = compute_confidence_score(final_repos ,audit_signals)
 
     return {
         "repos": final_repos,
-        "verification": verification
+        "final_score": final_score,
+        "label": label,
+        "reasons": reasons,
+
+        "confidence": {
+            "score": confidence_score,
+            "level": confidence_label,
+            "reasons": confidence_reasons
+        },
+
+        "audit": {
+            "total_projects": total_projects,
+            "matched_projects": matched_count,
+            "missing_projects": missing_projects_list
+        }
     }

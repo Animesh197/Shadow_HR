@@ -25,7 +25,7 @@ from validation.demo_url_validator import evaluate_all_urls
 
 
 if __name__ == "__main__":
-    pdf_path = "resume1.pdf"
+    pdf_path = "resume.pdf"
 
     print(" Extracting text from PDF...")
     text = extract_text_from_pdf(pdf_path)

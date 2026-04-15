@@ -1,90 +1,110 @@
-def compute_verification_index(repos, audit_signals):
+def compute_final_score_v2(repos, verification_data):
     """
-    Final credibility score (0–100)
+    Scoring V2 + Explanation Layer
     """
 
     if not repos:
-        return {
-            "verification_score": 0,
-            "label": "Unverified",
-            "confidence": "Low",
-            "reasons": ["No valid repositories found"]
-        }
+        return 0, "Suspicious (Low)", ["No valid repositories found"]
 
-    # ---------------- 1. TOP REPO SCORE ----------------
-    top_scores = [r.get("score", 0) for r in repos[:3]]
-    avg_repo_score = sum(top_scores) / len(top_scores)
+    repos = sorted(repos, key=lambda x: x.get("score", 0), reverse=True)
 
-    repo_component = avg_repo_score * 0.5  # weight 50%
+    total_projects = verification_data.get("total_projects", 1)
+    matched = verification_data.get("matched_projects", 0)
+    missing = verification_data.get("missing_projects", 0)
 
-    # ---------------- 2. MATCH RATIO ----------------
-    match_ratio = audit_signals.get("match_ratio", 0)
+    match_ratio = matched / max(total_projects, 1)
 
-    match_component = match_ratio * 100 * 0.3  # weight 30%
+    # ---------------- BASE COMPONENTS ----------------
+    weights = [0.5, 0.3, 0.2]
+    weighted_score = sum(
+        repos[i].get("score", 0) * weights[i]
+        for i in range(min(3, len(repos)))
+    ) / 100
 
-    # ---------------- 3. CONSISTENCY BONUS ----------------
-    bonus = 0
+    consistency_scores = []
+    for r in repos[:5]:
+        c = 0
+        if r.get("live_demo"):
+            c += 1
+        if r.get("commit_score", 0) >= 50:
+            c += 1
+        if r.get("alignment_score", 0) >= 40:
+            c += 1
+        consistency_scores.append(c / 3)
 
-    for repo in repos:
-        if repo.get("live_demo"):
-            bonus += 2
-        if repo.get("commit_score", 0) >= 60:
-            bonus += 2
-        if repo.get("alignment_score", 0) >= 50:
-            bonus += 2
+    consistency = sum(consistency_scores) / len(consistency_scores) if consistency_scores else 0
+    demo_strength = sum(1 for r in repos if r.get("live_demo")) / len(repos)
+    strong_repos = sum(1 for r in repos if r.get("score", 0) >= 60)
+    diversity = min(strong_repos / 3, 1)
 
-    bonus = min(bonus, 20)  # cap
-    bonus_component = bonus * 0.2
+    final_score = (
+        weighted_score * 100 * 0.4 +
+        match_ratio * 100 * 0.25 +
+        consistency * 100 * 0.15 +
+        demo_strength * 100 * 0.1 +
+        diversity * 100 * 0.1
+    )
 
-    # ---------------- 4. PENALTIES ----------------
+    # ---------------- PENALTIES ----------------
     penalty = 0
+    reasons = []
 
-    if audit_signals.get("penalty_flag"):
+    missing_ratio = missing / max(total_projects, 1)
+
+    if missing_ratio > 0.7:
+        penalty += 18
+        reasons.append("Most claimed projects not found")
+    elif missing_ratio > 0.4:
         penalty += 10
+        reasons.append("Many claimed projects missing")
+    elif missing > 0:
+        penalty += 4 * missing
+        reasons.append(f"{missing} project(s) not found")
 
-    missing = len(audit_signals.get("missing_projects", []))
-    penalty += missing * 5
+    for r in repos:
+        name = r.get("name", "repo")
 
-    # weak repos
-    for repo in repos:
-        if repo.get("commit_score", 0) <= 20:
-            penalty += 3
+        if r.get("commit_score", 0) <= 20:
+            penalty += 2
+            reasons.append(f"Weak commit history in {name}")
 
-    # ---------------- FINAL SCORE ----------------
-    final_score = repo_component + match_component + bonus_component - penalty
+        if "dumped code" in r.get("commit_verdict", "").lower():
+            penalty += 5
+            reasons.append(f"Possible dumped code in {name}")
 
-    final_score = max(0, min(100, round(final_score)))
+        if r.get("alignment_score", 0) < 40:
+            penalty += 2
+            reasons.append(f"Low README-code alignment in {name}")
+
+    if demo_strength == 0:
+        penalty += 5
+        reasons.append("No live demos found")
+
+    penalty = min(penalty, 30)
+
+    # ---------------- FINAL ----------------
+    final_score -= penalty
+    final_score = max(0, min(100, final_score))
 
     # ---------------- LABEL ----------------
     if final_score >= 75:
-        label = "Verified"
-        confidence = "High"
+        label = "Verified (High)"
     elif final_score >= 50:
-        label = "Moderate"
-        confidence = "Medium"
+        label = "Moderate (Medium)"
     else:
-        label = "Suspicious"
-        confidence = "Low"
+        label = "Suspicious (Low)"
 
-    # ---------------- REASONS ----------------
-    reasons = []
+    # ---------------- POSITIVE SIGNALS ----------------
+    if match_ratio >= 0.7:
+        reasons.append("Most projects successfully verified")
 
-    if match_ratio < 0.5:
-        reasons.append("Low project verification ratio")
+    if demo_strength > 0:
+        reasons.append("Live demos detected")
 
-    if missing > 0:
-        reasons.append(f"{missing} claimed projects not found")
+    if consistency > 0.6:
+        reasons.append("Consistent quality across repositories")
 
-    for repo in repos:
-        if repo.get("commit_score", 0) <= 20:
-            reasons.append(f"Weak commit history in {repo.get('name')}")
+    # remove duplicates
+    reasons = list(set(reasons))
 
-        if not repo.get("live_demo"):
-            reasons.append(f"No demo for {repo.get('name')}")
-
-    return {
-        "verification_score": final_score,
-        "label": label,
-        "confidence": confidence,
-        "reasons": list(set(reasons))  # remove duplicates
-    }
+    return round(final_score, 2), label, reasons
