@@ -12,9 +12,10 @@ Includes:
 
 from vitality_audit.infra_analyzer import check_repo_infra
 from vitality_audit.commit_analyzer import analyze_repo_commits
+from vitality_audit.readme_analyzer import analyze_readme_alignment
 from datetime import datetime, timezone
 from urllib.parse import urlparse
-
+# re
 
 # ---------------- NORMALIZATION ----------------
 def normalize(text):
@@ -98,8 +99,9 @@ def compute_repo_score(repo):
 
     infra_score = compute_infra_score(repo)
     commit_score = repo.get("commit_score", 0)
+    alignment_score = repo.get("alignment_score", 0)  
 
-    score = (stars * 2) + recency + infra_score + commit_score
+    score = (stars * 2) + recency + infra_score + commit_score + (alignment_score * 0.5)
 
     if live_demo:
         score += 5
@@ -216,6 +218,15 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
         else:
             repo["commit_score"] = 0
             repo["commit_verdict"] = "No data"
+
+        # NEW: README Alignment Analysis
+        if owner and name:
+            alignment_data = analyze_readme_alignment(owner, name, repo)
+            repo["alignment_score"] = alignment_data.get("alignment_score", 0)
+            repo["alignment_verdict"] = alignment_data.get("verdict", "")
+        else:
+            repo["alignment_score"] = 0
+            repo["alignment_verdict"] = "No data"
 
         # Live Demo (NEW: Attach early based on homepage)
         repo["live_demo"] = is_demo_url_valid(repo.get("homepage"), demo_results)
