@@ -9,8 +9,10 @@ from validation.browser_validator import fetch_rendered_html
 # from scoring.verification_index import compute_verification_index
 from scoring.verification_index import compute_final_score_v2
 from scoring.confidence_score import compute_confidence_score
+from vitality_audit.semantic_matcher import compute_semantic_similarity
 from datetime import datetime, timezone
 from urllib.parse import urlparse
+import requests
 
 
 # ---------------- NORMALIZATION ----------------
@@ -131,43 +133,170 @@ def compute_repo_score(repo):
     return round(score, 2)
 
 
+
+def compute_project_repo_match_score(project, repo, readme_text):
+    """
+    Hybrid scoring: keyword + semantic
+    """
+
+    proj_norm = normalize(project)
+
+    name = repo.get("name", "")
+    repo_name_norm = normalize(name)
+
+    desc = repo.get("description") or ""
+    readme = readme_text or ""
+
+    score = 0
+
+    # ✅ HARD PRIORITY (CRITICAL FIX)
+    if proj_norm in repo_name_norm or repo_name_norm in proj_norm:
+        score += 20   # strong boost
+
+    # ---------------- KEYWORD MATCH ----------------
+    if proj_norm in normalize(name):
+        score += 10
+
+    if proj_norm in normalize(desc):
+        score += 5
+
+    if proj_norm in normalize(readme):
+        score += 8
+
+    # ---------------- SEMANTIC MATCH ----------------
+    semantic_inputs = [
+        name,
+        desc,
+        readme[:1000]  # limit size
+    ]
+
+    best_semantic = 0
+
+    for text in semantic_inputs:
+        sim = compute_semantic_similarity(project, text)
+        best_semantic = max(best_semantic, sim)
+
+    # scale semantic score
+    score += best_semantic * 10  # converts 0–1 → 0–10
+
+    return score
+
+
+def fetch_readme(owner, repo):
+    """
+    Fetch README content (lightweight)
+    """
+    url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+
+    headers = {
+        "Accept": "application/vnd.github.v3.raw"
+    }
+
+    try:
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            return res.text[:3000]  # limit size
+    except:
+        pass
+
+    return ""
+
+
 # ---------------- PROJECT MATCHING ----------------
 def match_projects_with_repos(repos, projects, pulse_results, demo_results):
     matched_repos = []
     project_status = []
 
+    # ---------------- README CACHE ----------------
+    readme_cache = {}
+
     for proj in projects:
-        proj_norm = normalize(proj)
-        found = False
+        best_repo = None
+        best_score = 0
 
         for repo in repos:
-            repo_name_norm = normalize(repo["name"])
+            owner = repo.get("owner")
+            name = repo.get("name")
 
-            if proj_norm in repo_name_norm:
+            # -------- FETCH README (CACHED) --------
+            if name not in readme_cache:
+                if owner and name:
+                    readme_cache[name] = fetch_readme(owner, name)
+                else:
+                    readme_cache[name] = ""
 
-                homepage_demo = is_demo_url_valid(repo.get("homepage"), demo_results)
-                proj_demo = check_valid_demo_for_project(proj, demo_results)
+            readme_text = readme_cache[name]
 
-                live_demo = homepage_demo or proj_demo
+            # -------- COMPUTE MATCH SCORE --------
+            score = compute_project_repo_match_score(proj, repo, readme_text)
 
-                repo["live_demo"] = live_demo
+            if score > best_score:
+                best_score = score
+                best_repo = repo
 
-                matched_repos.append(repo)
+        # ---------------- THRESHOLD ----------------
+        # if best_repo and best_score >= 8:
 
-                project_status.append({
-                    "project": proj,
-                    "status": "found",
-                    "repo": repo["name"],
-                    "live_demo": live_demo
-                })
+        #     homepage_demo = is_demo_url_valid(best_repo.get("homepage"), demo_results)
+        #     proj_demo = check_valid_demo_for_project(proj, demo_results)
 
-                found = True
-                break
+        #     live_demo = homepage_demo or proj_demo
 
-        if not found:
+        #     best_repo["live_demo"] = live_demo
+
+        #     matched_repos.append(best_repo)
+
+        #     project_status.append({
+        #         "project": proj,
+        #         "status": "found",
+        #         "repo": best_repo["name"],
+        #         "match_score": best_score,
+        #         "live_demo": live_demo
+        #     })
+
+        # else:
+        #     project_status.append({
+        #         "project": proj,
+        #         "status": "not_found",
+        #         "match_score": best_score
+        #     })
+
+        proj_norm = normalize(proj)
+
+        repo_name_norm = normalize(best_repo.get("name", "")) if best_repo else ""
+
+        # Strong name match check
+        name_match = (
+            proj_norm in repo_name_norm or
+            repo_name_norm in proj_norm
+        )
+
+        # Final decision
+        if best_repo and (name_match or best_score >= 6):
+
+            homepage_demo = is_demo_url_valid(best_repo.get("homepage"), demo_results)
+            proj_demo = check_valid_demo_for_project(proj, demo_results)
+
+            live_demo = homepage_demo or proj_demo
+
+            best_repo["live_demo"] = live_demo
+
+            matched_repos.append(best_repo)
+
             project_status.append({
                 "project": proj,
-                "status": "not_found"
+                "status": "found",
+                "repo": best_repo["name"],
+                "match_score": best_score,
+                "live_demo": live_demo,
+                "match_type": "name_match" if name_match else "score_match"
+            })
+
+        else:
+            project_status.append({
+                "project": proj,
+                "status": "not_found",
+                "match_score": best_score
             })
 
     return matched_repos, project_status

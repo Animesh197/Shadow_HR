@@ -19,9 +19,18 @@ def fetch_github_repos(username):
 
     data = response.json()
 
+    # ✅ CRITICAL FIX: ensure it's a list
+    if not isinstance(data, list):
+        print(" Unexpected GitHub response:", data)
+        return []
+
     repos = []
 
     for repo in data:
+        # extra safety
+        if not isinstance(repo, dict):
+            continue
+
         repos.append({
             "name": repo.get("name"),
             "owner": repo.get("owner", {}).get("login"),
@@ -31,16 +40,7 @@ def fetch_github_repos(username):
             "stars": repo.get("stargazers_count", 0),
             "pushed_at": repo.get("pushed_at"),
             "homepage": repo.get("homepage")
-
         })
 
     print([repo['name'] for repo in repos])
-    return repos
-
-    # optional (for debugging)
-    print("\n Repo Homepages:")
-    for repo in repos:
-        if repo.get("homepage"):
-            print(f"{repo['name']} → {repo['homepage']}")
-
     return repos

@@ -1,5 +1,8 @@
 
-from playwright.sync_api import sync_playwright
+try:
+    from playwright.sync_api import sync_playwright
+except:
+    sync_playwright = None
 import time
 
 # CACHE (URL → HTML)

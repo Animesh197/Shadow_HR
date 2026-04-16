@@ -6,6 +6,9 @@ Responsible for:
 
 def extract_username_from_github_url(url):
     try:
+        # remove query params
+        url = url.split("?")[0]
+
         parts = url.strip("/").split("/")
 
         if "github.com" in parts:
@@ -33,6 +36,9 @@ def normalize_github_username(github_field, links):
     # STEP 2: Fallback to LLM output
     if github_field:
         github_field = github_field.strip()
+
+        # remove query params if present
+        github_field = github_field.split("?")[0]
 
         # Case 1: full URL
         if "github.com" in github_field:
