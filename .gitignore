@@ -5,3 +5,7 @@ venv/
 __pycache__/
 *.pyc
 .env
+resume.pdf
+resume1.pdf
+resume2.pdf
+implementation_plan.md
