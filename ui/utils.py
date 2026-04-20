@@ -8,6 +8,13 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from main import run_audit_pipeline
 
+import re
+
+def normalize(text: str) -> str:
+    if not text:
+        return ""
+    return re.sub(r'[^a-z0-9]', '', text.lower())
+
 st.set_page_config(page_title="AI Resume Auditor", layout="wide")
 
 st.title("🧾 AI Resume Auditor")

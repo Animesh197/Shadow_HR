@@ -10,14 +10,32 @@ from validation.browser_validator import fetch_rendered_html
 from scoring.verification_index import compute_final_score_v2
 from scoring.confidence_score import compute_confidence_score
 from vitality_audit.semantic_matcher import compute_semantic_similarity
+from vitality_audit.matching.matcher import match_project
+
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 import requests
 
 
+def extract_repo_names_from_links(links):
+    repo_names = set()
+
+    for url in links:
+        if "github.com" in url:
+            parts = url.split("/")
+            if len(parts) >= 5:
+                repo_name = parts[4]
+                if repo_name and repo_name != "":
+                    repo_names.add(repo_name.lower())
+
+    return repo_names
+
+
 # ---------------- NORMALIZATION ----------------
+from vitality_audit.matching.text_utils import normalize_text, normalized_contains
 def normalize(text):
-    return text.lower().replace(" ", "").replace("-", "").replace("_", "")
+    """Strip-all-separators normalize for backwards compat."""
+    return normalize_text(text).replace(" ", "")
 
 
 # ---------------- DOMAIN UTILS ----------------
@@ -134,75 +152,16 @@ def compute_repo_score(repo):
 
 
 
-def compute_project_repo_match_score(project, repo, readme_text):
-    """
-    Hybrid scoring: keyword + semantic
-    """
-
-    proj_norm = normalize(project)
-
-    name = repo.get("name", "")
-    repo_name_norm = normalize(name)
-
-    desc = repo.get("description") or ""
-    readme = readme_text or ""
-
-    score = 0
-
-    # ✅ HARD PRIORITY (CRITICAL FIX)
-    if proj_norm in repo_name_norm or repo_name_norm in proj_norm:
-        score += 20   # strong boost
-
-    # ---------------- KEYWORD MATCH ----------------
-    if proj_norm in normalize(name):
-        score += 10
-
-    if proj_norm in normalize(desc):
-        score += 5
-
-    if proj_norm in normalize(readme):
-        score += 8
-
-    # ---------------- SEMANTIC MATCH ----------------
-    semantic_inputs = [
-        name,
-        desc,
-        readme[:1000]  # limit size
-    ]
-
-    best_semantic = 0
-
-    for text in semantic_inputs:
-        sim = compute_semantic_similarity(project, text)
-        best_semantic = max(best_semantic, sim)
-
-    # scale semantic score
-    score += best_semantic * 10  # converts 0–1 → 0–10
-
-    return score
-
+from vitality_audit.readme_analyzer import fetch_readme as _fetch_readme_raw
 
 def fetch_readme(owner, repo):
-    """
-    Fetch README content (lightweight)
-    """
-    url = f"https://api.github.com/repos/{owner}/{repo}/readme"
-
-    headers = {
-        "Accept": "application/vnd.github.v3.raw"
-    }
-
-    try:
-        res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code == 200:
-            return res.text[:3000]  # limit size
-    except:
-        pass
-
-    return ""
+    """Fetch README content (uses authenticated call from readme_analyzer)."""
+    content = _fetch_readme_raw(owner, repo)
+    return content[:3000] if content else ""
 
 
 # ---------------- PROJECT MATCHING ----------------
+
 def match_projects_with_repos(repos, projects, pulse_results, demo_results):
     matched_repos = []
     project_status = []
@@ -210,75 +169,43 @@ def match_projects_with_repos(repos, projects, pulse_results, demo_results):
     # ---------------- README CACHE ----------------
     readme_cache = {}
 
+    # Preload READMEs once (IMPORTANT for performance)
+    for repo in repos:
+        owner = repo.get("owner")
+        name = repo.get("name")
+
+        if name not in readme_cache:
+            if owner and name:
+                readme_cache[name] = fetch_readme(owner, name)
+            else:
+                readme_cache[name] = ""
+
+    # ---------------- PROJECT MATCHING ----------------
     for proj in projects:
-        best_repo = None
-        best_score = 0
 
-        for repo in repos:
-            owner = repo.get("owner")
-            name = repo.get("name")
-
-            # -------- FETCH README (CACHED) --------
-            if name not in readme_cache:
-                if owner and name:
-                    readme_cache[name] = fetch_readme(owner, name)
-                else:
-                    readme_cache[name] = ""
-
-            readme_text = readme_cache[name]
-
-            # -------- COMPUTE MATCH SCORE --------
-            score = compute_project_repo_match_score(proj, repo, readme_text)
-
-            if score > best_score:
-                best_score = score
-                best_repo = repo
-
-        # ---------------- THRESHOLD ----------------
-        # if best_repo and best_score >= 8:
-
-        #     homepage_demo = is_demo_url_valid(best_repo.get("homepage"), demo_results)
-        #     proj_demo = check_valid_demo_for_project(proj, demo_results)
-
-        #     live_demo = homepage_demo or proj_demo
-
-        #     best_repo["live_demo"] = live_demo
-
-        #     matched_repos.append(best_repo)
-
-        #     project_status.append({
-        #         "project": proj,
-        #         "status": "found",
-        #         "repo": best_repo["name"],
-        #         "match_score": best_score,
-        #         "live_demo": live_demo
-        #     })
-
-        # else:
-        #     project_status.append({
-        #         "project": proj,
-        #         "status": "not_found",
-        #         "match_score": best_score
-        #     })
-
-        proj_norm = normalize(proj)
-
-        repo_name_norm = normalize(best_repo.get("name", "")) if best_repo else ""
-
-        # Strong name match check
-        name_match = (
-            proj_norm in repo_name_norm or
-            repo_name_norm in proj_norm
+        best_repo, best_score, confidence_label, features = match_project(
+            proj,
+            repos,
+            readme_cache
         )
 
-        # Final decision
-        if best_repo and (name_match or best_score >= 6):
+        # ---------------- FALLBACK MATCH (RULE BASED) ----------------
+        if not best_repo:
+            for repo in repos:
+                if normalized_contains(proj, repo.get("name", "")):
+                    best_repo = repo
+                    best_score = 0.5
+                    confidence_label = "rule_based_override"
+                    break
 
+        # ---------------- DECISION ----------------
+        if best_repo and confidence_label in ["high_confidence", "medium_confidence", "low_confidence", "rule_based_override"]:
+
+            # ---------------- DEMO CHECK ----------------
             homepage_demo = is_demo_url_valid(best_repo.get("homepage"), demo_results)
             proj_demo = check_valid_demo_for_project(proj, demo_results)
 
             live_demo = homepage_demo or proj_demo
-
             best_repo["live_demo"] = live_demo
 
             matched_repos.append(best_repo)
@@ -286,21 +213,30 @@ def match_projects_with_repos(repos, projects, pulse_results, demo_results):
             project_status.append({
                 "project": proj,
                 "status": "found",
-                "repo": best_repo["name"],
-                "match_score": best_score,
+                "repo": best_repo.get("name"),
+                "match_score": round(best_score, 2),
+                "confidence": confidence_label,
                 "live_demo": live_demo,
-                "match_type": "name_match" if name_match else "score_match"
+
+                # 🔍 DEBUG SIGNALS (VERY IMPORTANT)
+                "signals": {
+                    "name_overlap": round(features.get("name_overlap", 0), 3),
+                    "name_exact": round(features.get("name_exact", 0), 3),
+                    "semantic": round(features.get("semantic_max", 0), 3),
+                    "desc_overlap": round(features.get("desc_overlap", 0), 3),
+                    "readme_overlap": round(features.get("readme_overlap", 0), 3)
+                }
             })
 
         else:
             project_status.append({
                 "project": proj,
                 "status": "not_found",
-                "match_score": best_score
+                "match_score": round(best_score, 2) if best_score else 0,
+                "confidence": confidence_label if best_repo else "no_match"
             })
 
     return matched_repos, project_status
-
 
 # ---------------- SKILL SCORING ----------------
 def score_repo_by_skills(repo, skills):
@@ -337,11 +273,11 @@ def get_skill_based_repos(repos, skills, exclude_names, k):
 
 
 # ---------------- PREFILTER (NEW) ----------------
-def prefilter_repos(repos, parsed_data, top_n=8):
+def prefilter_repos(repos, parsed_data, links, top_n=8):
     """
     Improved lightweight filtering before expensive analysis
     """
-
+    resume_repo_names = extract_repo_names_from_links(links)  # newly added
     projects = parsed_data.get("projects", [])
     skills = [s.lower() for s in parsed_data.get("skills", [])]
 
@@ -350,22 +286,26 @@ def prefilter_repos(repos, parsed_data, top_n=8):
     for repo in repos:
         score = 0
 
-        name = repo.get("name", "").lower()
+        repo_name = (repo.get("name") or "").lower()
         language = (repo.get("language") or "").lower()
-        stars = repo.get("stars", 0)
-        pushed_at = repo.get("pushed_at")
+        stars = repo.get("stargazers_count", 0)
+        pushed_at = repo.get("pushed_at", "")
+
+        # FORCE INCLUDE RESUME-LINKED REPOS
+        if repo_name in resume_repo_names:
+            score += 100  # ensures it never gets filtered out
 
         # ---------------- PROJECT MATCH (HIGH WEIGHT) ----------------
         for proj in projects:
-            if normalize(proj) in normalize(name):
+            if normalized_contains(proj, repo_name):
                 score += 10
 
         # ---------------- SKILL MATCH ----------------
-        if language in skills:
+        if language and language in skills:  # ✅ safe check
             score += 5
 
         # ---------------- STARS ----------------
-        score += min(stars, 5)
+        score += min(stars, 5)  # ✅ now valid
 
         # ---------------- RECENCY ----------------
         if pushed_at:
@@ -383,11 +323,13 @@ def prefilter_repos(repos, parsed_data, top_n=8):
                 pass
 
         scored.append((repo, score))
+        print(f"[PREFILTER] {repo_name} → score: {score}")
 
     # sort by score
     scored.sort(key=lambda x: x[1], reverse=True)
 
     selected = [r[0] for r in scored[:top_n]]
+
 
     print(f"\n Prefilter selected {len(selected)} repos out of {len(repos)}")
 
@@ -395,13 +337,13 @@ def prefilter_repos(repos, parsed_data, top_n=8):
 
 
 # ---------------- MAIN SELECTOR ----------------
-def select_top_repos(repos, parsed_data, pulse_results, demo_results, k=3):
+def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=3):
 
     projects = parsed_data.get("projects", [])
     skills = parsed_data.get("skills", [])
 
     # ---------------- PREFILTER ----------------
-    repos = prefilter_repos(repos, parsed_data, top_n=8)
+    repos = prefilter_repos(repos, parsed_data, links, top_n=8)
 
     print("\n Prefiltered Repos:")
     print([r["name"] for r in repos])

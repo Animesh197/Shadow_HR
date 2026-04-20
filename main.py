@@ -118,6 +118,7 @@ def run_audit_pipeline(pdf_path):
         parsed,
         pulse_results,
         demo_results,
+        links,   # NEW
         k=3
     )
 
@@ -141,7 +142,7 @@ def run_audit_pipeline(pdf_path):
 # =========================================================
 
 if __name__ == "__main__":
-    pdf_path = "resume.pdf"
+    pdf_path = "resume1.pdf"
 
     output = run_audit_pipeline(pdf_path)
 
