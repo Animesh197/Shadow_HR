@@ -150,6 +150,29 @@ def compute_repo_score(repo):
 
     return round(score, 2)
 
+# def compute_repo_score(repo):
+
+#     stars = min(repo.get("stars", 0), 50) / 50      # normalize 0–1
+#     recency = get_recency_weight(repo.get("pushed_at")) / 5
+#     infra = compute_infra_score(repo) / 7
+#     commit = repo.get("commit_score", 0) / 100
+#     alignment = repo.get("alignment_score", 0) / 100
+#     demo = 1 if repo.get("live_demo") else 0
+#     demo_quality = repo.get("demo_score", 0) / 5
+
+#     # weights (sum ≈ 1)
+#     score = (
+#         0.15 * stars +
+#         0.10 * recency +
+#         0.15 * infra +
+#         0.20 * commit +
+#         0.20 * alignment +
+#         0.10 * demo +
+#         0.10 * demo_quality
+#     )
+
+#     return round(score * 100, 2)
+
 
 
 from vitality_audit.readme_analyzer import fetch_readme as _fetch_readme_raw
@@ -332,6 +355,19 @@ def prefilter_repos(repos, parsed_data, links, top_n=8):
 
 
     print(f"\n Prefilter selected {len(selected)} repos out of {len(repos)}")
+    # scored.sort(key=lambda x: x[1], reverse=True)
+
+    # MIN_SCORE_THRESHOLD = 20  # calibrated
+
+    # filtered = [r for r, s in scored if s >= MIN_SCORE_THRESHOLD]
+
+    # # fallback safety (important in production)
+    # if len(filtered) >= top_n:
+    #     selected = filtered[:top_n]
+    # else:
+    #     selected = [r[0] for r in scored[:top_n]]
+        
+
 
     return selected
 
@@ -425,6 +461,14 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=3
             exclude_names,
             remaining_slots
         )
+
+    # if len(final_repos) == 0:
+    #     final_repos = get_skill_based_repos(
+    #         repos,
+    #         skills,
+    #         exclude_names=[],
+    #         k=k
+    #     )
 
         final_repos.extend(skill_repos)
 

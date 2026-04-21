@@ -153,6 +153,7 @@ def extract_tech_from_repo(owner, repo_name, repo):
 
 
 # Step 4: Compare
+
 def compare_readme_code(readme_tech, repo_tech):
 
     if not readme_tech:
@@ -187,6 +188,39 @@ def compare_readme_code(readme_tech, repo_tech):
             "verdict": "Mismatch — possible exaggeration"
         }
 
+# def compare_readme_code(readme_tech, repo_tech):
+
+#     # Case 1: No README signals → neutral (not penalized)
+#     if not readme_tech:
+#         return {
+#             "alignment_score": 60,   # neutral baseline
+#             "verdict": "README lacks technical detail"
+#         }
+
+#     matches = sum(1 for tech in readme_tech if tech in repo_tech)
+#     ratio = matches / len(readme_tech)
+
+#     # Case 2: Strong alignment
+#     if ratio >= 0.7:
+#         return {
+#             "alignment_score": 85,
+#             "verdict": "Strong README-code alignment"
+#         }
+
+#     # Case 3: Moderate alignment
+#     elif ratio >= 0.4:
+#         return {
+#             "alignment_score": 70,
+#             "verdict": "Partial alignment"
+#         }
+
+#     # Case 4: Weak alignment (NOT exaggeration)
+#     else:
+#         return {
+#             "alignment_score": 50,
+#             "verdict": "Weak alignment (limited consistency)"
+#         }
+
 # Step 5: Wrapper Function
 def analyze_readme_alignment(owner, repo, repo_data):
 
@@ -197,6 +231,11 @@ def analyze_readme_alignment(owner, repo, repo_data):
             "alignment_score": 0,
             "verdict": "No README found"
         }
+    # if not readme:
+    #     return {
+    #         "alignment_score": 55,
+    #         "verdict": "No README found"
+    #     }
 
     readme_tech = extract_tech_from_readme(readme)
     repo_tech = extract_tech_from_repo(owner, repo, repo_data)
