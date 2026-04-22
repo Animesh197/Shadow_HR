@@ -34,7 +34,7 @@ def compute_final_score_v2(repos, verification_data):
 
     consistency = sum(consistency_scores) / len(consistency_scores) if consistency_scores else 0
     demo_strength = sum(1 for r in repos if r.get("live_demo")) / len(repos)
-    strong_repos = sum(1 for r in repos if r.get("score", 0) >= 60)
+    strong_repos = sum(1 for r in repos if r.get("score", 0) >= 70)
     diversity = min(strong_repos / 3, 1)
 
     final_score = (

@@ -11,6 +11,7 @@ from scoring.verification_index import compute_final_score_v2
 from scoring.confidence_score import compute_confidence_score
 from vitality_audit.semantic_matcher import compute_semantic_similarity
 from vitality_audit.matching.matcher import match_project
+from vitality_audit.complexity_analyzer import compute_complexity_score
 
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -66,7 +67,12 @@ def is_demo_url_valid(url, demo_results):
 
 
 def check_valid_demo_for_project(project, demo_results):
-    proj_norm = normalize(project)
+    # Try full name, then core name (before any parenthetical)
+    names_to_try = [project]
+    if "(" in project:
+        core = project.split("(")[0].strip()
+        if core:
+            names_to_try.append(core)
 
     for d in demo_results:
         if d.get("score", 0) <= 0:
@@ -74,8 +80,10 @@ def check_valid_demo_for_project(project, demo_results):
 
         url_norm = normalize(d.get("url", ""))
 
-        if proj_norm in url_norm:
-            return True
+        for name in names_to_try:
+            proj_norm = normalize(name)
+            if proj_norm and proj_norm in url_norm:
+                return True
 
     return False
 
@@ -120,58 +128,94 @@ def compute_infra_score(repo):
 
 
 # ---------------- FINAL SCORE ----------------
-def compute_repo_score(repo):
-    stars = repo.get("stars", 0)
-    recency = get_recency_weight(repo.get("pushed_at"))
-    infra = compute_infra_score(repo)
-    commit = repo.get("commit_score", 0)
-    alignment = repo.get("alignment_score", 0)
-    live_demo = repo.get("live_demo", False)
-    demo_quality = repo.get("demo_score", 0)
-
-    stars_score = min(stars * 2, 10)
-    recency_score = min(recency, 10)
-    infra_score = min(infra, 10)
-    commit_score = commit * 0.5
-    alignment_score = alignment * 0.4
-
-    demo_score = 10 if live_demo else 0
-    demo_quality_score = demo_quality * 2
-
-    score = (
-        stars_score +
-        recency_score +
-        infra_score +
-        commit_score +
-        alignment_score +
-        demo_score +
-        demo_quality_score
-    )
-
-    return round(score, 2)
-
 # def compute_repo_score(repo):
+#     stars = repo.get("stars", 0)
+#     recency = get_recency_weight(repo.get("pushed_at"))
+#     infra = compute_infra_score(repo)
+#     commit = repo.get("commit_score", 0)
+#     alignment = repo.get("alignment_score", 0)
+#     live_demo = repo.get("live_demo", False)
+#     demo_quality = repo.get("demo_score", 0)
 
-#     stars = min(repo.get("stars", 0), 50) / 50      # normalize 0–1
-#     recency = get_recency_weight(repo.get("pushed_at")) / 5
-#     infra = compute_infra_score(repo) / 7
-#     commit = repo.get("commit_score", 0) / 100
-#     alignment = repo.get("alignment_score", 0) / 100
-#     demo = 1 if repo.get("live_demo") else 0
-#     demo_quality = repo.get("demo_score", 0) / 5
+#     stars_score = min(stars * 2, 10)
+#     recency_score = min(recency, 10)
+#     infra_score = min(infra, 10)
+#     commit_score = commit * 0.5
+#     alignment_score = alignment * 0.4
 
-#     # weights (sum ≈ 1)
+#     demo_score = 10 if live_demo else 0
+#     demo_quality_score = demo_quality * 2
+
 #     score = (
-#         0.15 * stars +
-#         0.10 * recency +
-#         0.15 * infra +
-#         0.20 * commit +
-#         0.20 * alignment +
-#         0.10 * demo +
-#         0.10 * demo_quality
+#         stars_score +
+#         recency_score +
+#         infra_score +
+#         commit_score +
+#         alignment_score +
+#         demo_score +
+#         demo_quality_score
 #     )
 
-#     return round(score * 100, 2)
+#     return round(score, 2)
+
+
+def compute_repo_score(repo):
+
+    # ---------------- RAW SIGNALS ----------------
+    stars = repo.get("stars", 0)
+    recency_weight = get_recency_weight(repo.get("pushed_at"))
+
+    infra_raw = compute_infra_score(repo)
+
+    commit_score = repo.get("commit_score", 0)
+    alignment_score = repo.get("alignment_score", 0)
+
+    demo_score = repo.get("demo_score", 0)
+
+    # placeholder fields for later phases
+    complexity_score = repo.get("complexity_score", 0)
+    stack_score = repo.get("stack_score", 0)
+
+    # ---------------- NORMALIZATION ----------------
+
+    # commit quality → 25%
+    commit_component = (commit_score / 100) * 25
+
+    # README alignment → 20%
+    alignment_component = (alignment_score / 100) * 20
+
+    # infra quality → 15%
+    # infra max currently = 7
+    infra_component = (infra_raw / 7) * 15 if infra_raw else 0
+
+    # demo quality → 15%
+    demo_component = (demo_score / 10) * 15
+
+    # complexity placeholder → 10%
+    complexity_component = (complexity_score / 100) * 10
+
+    # recency → 5%
+    recency_component = (recency_weight / 5) * 5
+
+    # stars → 5%
+    stars_component = min(stars / 20, 1) * 5
+
+    # sophistication placeholder → 5%
+    sophistication_component = (stack_score / 100) * 5
+
+    # ---------------- FINAL SCORE ----------------
+    score = (
+        commit_component +
+        alignment_component +
+        infra_component +
+        demo_component +
+        complexity_component +
+        recency_component +
+        stars_component +
+        sophistication_component
+    )
+
+    return round(min(score, 100), 2)
 
 
 
@@ -227,8 +271,9 @@ def match_projects_with_repos(repos, projects, pulse_results, demo_results):
             # ---------------- DEMO CHECK ----------------
             homepage_demo = is_demo_url_valid(best_repo.get("homepage"), demo_results)
             proj_demo = check_valid_demo_for_project(proj, demo_results)
+            repo_demo = check_valid_demo_for_project(best_repo.get("name", ""), demo_results)
 
-            live_demo = homepage_demo or proj_demo
+            live_demo = homepage_demo or proj_demo or repo_demo
             best_repo["live_demo"] = live_demo
 
             matched_repos.append(best_repo)
@@ -355,25 +400,12 @@ def prefilter_repos(repos, parsed_data, links, top_n=8):
 
 
     print(f"\n Prefilter selected {len(selected)} repos out of {len(repos)}")
-    # scored.sort(key=lambda x: x[1], reverse=True)
-
-    # MIN_SCORE_THRESHOLD = 20  # calibrated
-
-    # filtered = [r for r, s in scored if s >= MIN_SCORE_THRESHOLD]
-
-    # # fallback safety (important in production)
-    # if len(filtered) >= top_n:
-    #     selected = filtered[:top_n]
-    # else:
-    #     selected = [r[0] for r in scored[:top_n]]
         
-
-
     return selected
 
 
 # ---------------- MAIN SELECTOR ----------------
-def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=3):
+def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=2):
 
     projects = parsed_data.get("projects", [])
     skills = parsed_data.get("skills", [])
@@ -392,10 +424,20 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=3
         repo["infra"] = check_repo_infra(owner, name) if owner and name else {}
 
         commit_data = analyze_repo_commits(owner, name) if owner and name else {}
-        repo["commit_score"] = commit_data.get("commit_score", 0)
-        repo["commit_verdict"] = commit_data.get("verdict", "")
+        repo["commit_details"] = {
+            "score": commit_data.get("commit_score", 0),
+            "verdict": commit_data.get("verdict", "")
+        }
+        # repo["commit_score"] = commit_data.get("commit_score", 0)
+        # repo["commit_verdict"] = commit_data.get("verdict", "")
 
         alignment_data = analyze_readme_alignment(owner, name, repo) if owner and name else {}
+        # ---------------- COMPLEXITY ----------------
+        complexity_data = compute_complexity_score(repo)
+
+        repo["complexity_score"] = complexity_data.get("complexity_score", 0)
+        repo["complexity_verdict"] = complexity_data.get("complexity_verdict", "")
+        repo["complexity_reasons"] = complexity_data.get("complexity_reasons", [])
         repo["alignment_score"] = alignment_data.get("alignment_score", 0)
         repo["alignment_verdict"] = alignment_data.get("verdict", "")
 
@@ -445,6 +487,16 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=3
     # ---------------- SCORING ----------------
     for repo in matched_repos:
         repo["score"] = compute_repo_score(repo)
+
+        # debug scoring breakdown
+        repo["score_breakdown"] = {
+            "commit": repo.get("commit_score", 0),
+            "alignment": repo.get("alignment_score", 0),
+            "infra": compute_infra_score(repo),
+            "demo": repo.get("demo_score", 0),
+            "stars": repo.get("stars", 0),
+            "recency": get_recency_weight(repo.get("pushed_at"))
+        }
 
     matched_repos.sort(key=lambda x: x["score"], reverse=True)
 

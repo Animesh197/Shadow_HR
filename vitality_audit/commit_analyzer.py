@@ -57,9 +57,61 @@ def extract_commit_dates(commits):
     return sorted(dates)
 
 
+# def analyze_commit_pattern(dates):
+#     """
+#     Core logic to detect authenticity
+#     """
+
+#     if not dates:
+#         return {
+#             "commit_score": 0,
+#             "verdict": "No commits found"
+#         }
+
+#     total_commits = len(dates)
+
+#     # lifespan
+#     lifespan_days = (dates[-1] - dates[0]).days + 1
+
+#     # gaps between commits
+#     gaps = []
+#     for i in range(1, len(dates)):
+#         gap = (dates[i] - dates[i - 1]).days
+#         gaps.append(gap)
+
+#     avg_gap = sum(gaps) / len(gaps) if gaps else 0
+
+#     # Heuristics (VERY IMPORTANT)
+#     if total_commits <= 2:
+#         return {
+#             "commit_score": 10,
+#             "verdict": "Single/Minimal commit — suspicious"
+#         }
+
+#     if lifespan_days <= 1:
+#         return {
+#             "commit_score": 20,
+#             "verdict": "All commits in one day — likely dumped code"
+#         }
+
+#     if avg_gap > 30:
+#         return {
+#             "commit_score": 40,
+#             "verdict": "Very sparse commits — weak activity"
+#         }
+
+#     # Good case
+#     return {
+#         "commit_score": 80,
+#         "verdict": "Healthy iterative development"
+#     }
+
 def analyze_commit_pattern(dates):
     """
-    Core logic to detect authenticity
+    Improved commit scoring.
+
+    Same heuristics.
+    Better score granularity.
     """
 
     if not dates:
@@ -73,15 +125,19 @@ def analyze_commit_pattern(dates):
     # lifespan
     lifespan_days = (dates[-1] - dates[0]).days + 1
 
-    # gaps between commits
+    # gap analysis
     gaps = []
+
     for i in range(1, len(dates)):
         gap = (dates[i] - dates[i - 1]).days
         gaps.append(gap)
 
     avg_gap = sum(gaps) / len(gaps) if gaps else 0
 
-    # Heuristics (VERY IMPORTANT)
+    # ============================================================
+    # STAGE 1 — SAME EXISTING HEURISTICS
+    # ============================================================
+
     if total_commits <= 2:
         return {
             "commit_score": 10,
@@ -99,12 +155,63 @@ def analyze_commit_pattern(dates):
             "commit_score": 40,
             "verdict": "Very sparse commits — weak activity"
         }
+    # ============================================================
+    # STAGE 2 — ADD RESOLUTION
+    # ============================================================
 
-    # Good case
+    # commit density
+    commits_per_day = total_commits / max(lifespan_days, 1)
+
+    score = 50
+
+    # total commits contribution
+    if total_commits >= 100:
+        score += 20
+    elif total_commits >= 50:
+        score += 15
+    elif total_commits >= 20:
+        score += 10
+    elif total_commits >= 10:
+        score += 5
+
+    # lifespan contribution
+    if lifespan_days >= 365:
+        score += 10
+    elif lifespan_days >= 180:
+        score += 7
+    elif lifespan_days >= 90:
+        score += 5
+
+    # average gap contribution
+    if avg_gap <= 3:
+        score += 10
+    elif avg_gap <= 7:
+        score += 7
+    elif avg_gap <= 14:
+        score += 4
+
+    # commit density balance
+    if 0.05 <= commits_per_day <= 2:
+        score += 5
+
+    # cap score
+    score = min(score, 95)
+
+    # verdict tiers
+    if score >= 90:
+        verdict = "Exceptional iterative development"
+    elif score >= 75:
+        verdict = "Healthy iterative development"
+    elif score >= 60:
+        verdict = "Moderate development consistency"
+    else:
+        verdict = "Basic activity pattern"
+
     return {
-        "commit_score": 80,
-        "verdict": "Healthy iterative development"
+        "commit_score": round(score),
+        "verdict": verdict
     }
+    
 
 
 def analyze_repo_commits(owner, repo):
