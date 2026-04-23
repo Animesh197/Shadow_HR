@@ -74,7 +74,7 @@ if uploaded_file:
 
             st.write(
                 "Live Demo:",
-                "✅ Available" if repo.get("live_demo") else "❌ Not Found"
+                "Available" if repo.get("live_demo") else "Not Found"
             )
 
             st.divider()
