@@ -6,9 +6,9 @@ from vitality_audit.infra_analyzer import check_repo_infra
 from vitality_audit.commit_analyzer import analyze_repo_commits
 from vitality_audit.readme_analyzer import analyze_readme_alignment
 from validation.browser_validator import fetch_rendered_html
-# from scoring.verification_index import compute_verification_index
 from scoring.verification_index import compute_final_score_v2
 from scoring.confidence_score import compute_confidence_score
+from scoring.skill_validator import compute_skill_validation
 from vitality_audit.semantic_matcher import compute_semantic_similarity
 from vitality_audit.matching.matcher import match_project
 from vitality_audit.complexity_analyzer import compute_complexity_score
@@ -119,13 +119,19 @@ def get_recency_weight(pushed_at):
 def compute_infra_score(repo):
     infra = repo.get("infra", {})
 
+    # Use pre-computed infra_score if available
+    if infra.get("infra_score") is not None:
+        return infra.get("infra_score", 0)
+
     score = 0
     if infra.get("has_docker"):
-        score += 3
+        score += 15
     if infra.get("has_ci"):
-        score += 2
+        score += 15
     if infra.get("has_dependencies"):
-        score += 2
+        score += 10
+    if infra.get("has_deployment_config"):
+        score += 10
 
     return score
 
@@ -141,30 +147,29 @@ def compute_repo_score(repo):
 
     commit_score = repo.get("commit_score", 0)
     alignment_score = repo.get("alignment_score", 0)
-
     demo_score = repo.get("demo_score", 0)
-
-    # placeholder fields for later phases
     complexity_score = repo.get("complexity_score", 0)
     stack_score = repo.get("stack_score", 0)
 
-    # ---------------- NORMALIZATION ----------------
+    # ---------------- NORMALIZED COMPONENTS ----------------
 
-    # commit quality → 25%
-    commit_component = (commit_score / 100) * 25
+    # commit quality → 15%
+    commit_component = (commit_score / 100) * 15
 
-    # README alignment → 20%
-    alignment_component = (alignment_score / 100) * 20
+    # README alignment → 15%
+    alignment_component = (alignment_score / 100) * 15
 
-    # infra quality → 15%
-    # infra max currently = 7
-    infra_component = (infra_raw / 7) * 15 if infra_raw else 0
+    # complexity → 15%
+    complexity_component = (complexity_score / 100) * 15
 
-    # demo quality → 15%
-    demo_component = (demo_score / 10) * 15
+    # stack depth → 15%
+    sophistication_component = (stack_score / 100) * 15
 
-    # complexity placeholder → 10%
-    complexity_component = (complexity_score / 100) * 10
+    # infra → 10% (max infra_score = 50)
+    infra_component = (min(infra_raw, 50) / 50) * 10
+
+    # demo quality → 10%
+    demo_component = (demo_score / 10) * 10
 
     # recency → 5%
     recency_component = (recency_weight / 5) * 5
@@ -172,19 +177,16 @@ def compute_repo_score(repo):
     # stars → 5%
     stars_component = min(stars / 20, 1) * 5
 
-    # sophistication placeholder → 5%
-    sophistication_component = (stack_score / 100) * 5
-
     # ---------------- FINAL SCORE ----------------
     score = (
         commit_component +
         alignment_component +
+        complexity_component +
+        sophistication_component +
         infra_component +
         demo_component +
-        complexity_component +
         recency_component +
-        stars_component +
-        sophistication_component
+        stars_component
     )
 
     return round(min(score, 100), 2)
@@ -413,9 +415,14 @@ def enrich_repo(repo, owner, demo_results):
         "verdict", ""
     )
 
-    repo["detected_tech"] = alignment_data.get(
-        "verified_tech", []
-    )
+    # Merge detected_tech from README verified_tech + dependency signals
+    readme_tech = alignment_data.get("verified_tech", [])
+    dep_signals = repo.get("dependency_signals", {})
+    dep_tech = []
+    for techs in dep_signals.values():
+        dep_tech.extend(techs)
+
+    repo["detected_tech"] = list(set(readme_tech + dep_tech))
 
     # --------------------------------------------------------
     # COMPLEXITY
@@ -569,7 +576,22 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=2
 
     # ---------------- FINAL SCORE ----------------
     final_score, label, reasons = compute_final_score_v2(final_repos, audit_signals)
-    confidence_score, confidence_label, confidence_reasons = compute_confidence_score(final_repos,final_score ,audit_signals)
+    confidence_score, confidence_label, confidence_reasons = compute_confidence_score(final_repos, final_score, audit_signals)
+
+    # ---------------- SKILL VALIDATION ----------------
+    skill_validation = compute_skill_validation(skills, final_repos)
+
+    # ---------------- REPO TIERING ----------------
+    for repo in final_repos:
+        s = repo.get("score", 0)
+        if s >= 75:
+            repo["tier"] = "Tier 1 — Flagship"
+        elif s >= 50:
+            repo["tier"] = "Tier 2 — Supporting"
+        elif s >= 25:
+            repo["tier"] = "Tier 3 — Practice"
+        else:
+            repo["tier"] = "Tier 4 — Weak/Noisy"
 
     return {
         "repos": final_repos,
@@ -587,5 +609,7 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=2
             "total_projects": total_projects,
             "matched_projects": matched_count,
             "missing_projects": missing_projects_list
-        }
+        },
+
+        "skill_validation": skill_validation
     }

@@ -6,7 +6,8 @@ from validation.browser_validator import fetch_rendered_html
 
 DEMO_HOSTING = [
     "vercel.app", "netlify.app", "onrender.com",
-    "streamlit.app", "huggingface.co"
+    "streamlit.app", "huggingface.co", "railway.app",
+    "firebaseapp.com", "web.app", "github.io", "pages.dev"
 ]
 
 VIDEO_DEMO = [
@@ -17,18 +18,39 @@ CODE_HOSTING = [
     "github.com", "gitlab.com"
 ]
 
+# URLs that should never be counted as demos
+IGNORE_DOMAINS = [
+    "linkedin.com",
+    "leetcode.com",
+    "codeforces.com",
+    "codechef.com",
+    "hackerrank.com",
+    "drive.google.com",
+    "docs.google.com",
+    "holopin.io",
+    "twitter.com",
+    "x.com",
+    "instagram.com",
+    "medium.com",
+    "dev.to",
+    "stackoverflow.com",
+]
+
 
 def classify_url(url):
     domain = urlparse(url).netloc.lower()
 
-    if any(d in domain for d in DEMO_HOSTING):
-        return "hosted_demo"
+    if any(d in domain for d in IGNORE_DOMAINS):
+        return "ignored"
+
+    if any(d in domain for d in CODE_HOSTING):
+        return "code"
 
     if any(d in domain for d in VIDEO_DEMO):
         return "video_demo"
 
-    if any(d in domain for d in CODE_HOSTING):
-        return "code"
+    if any(d in domain for d in DEMO_HOSTING):
+        return "hosted_demo"
 
     return "unknown"
 
@@ -71,9 +93,12 @@ def evaluate_demo_url(url):
     url_type = classify_url(url)
     result["type"] = url_type
 
-    if url_type in ["code", "video_demo"]:
+    if url_type in ["code", "video_demo", "ignored"]:
         if url_type == "code":
             result["remarks"] = "Code repository, not a demo"
+        elif url_type == "ignored":
+            result["score"] = 0
+            result["remarks"] = "Social/competitive profile, not a demo"
         else:
             result["score"] = 2
             result["remarks"] = "Video demo available"

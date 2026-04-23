@@ -107,15 +107,15 @@ def compute_final_score_v2(repos, verification_data):
     missing_ratio = missing / max(total_projects, 1)
 
     if missing_ratio > 0.7:
-        penalty += 18
+        penalty += 15
         reasons.append("Most claimed projects not found")
 
     elif missing_ratio > 0.4:
-        penalty += 10
+        penalty += 8
         reasons.append("Many claimed projects missing")
 
     elif missing > 0:
-        penalty += 4 * missing
+        penalty += 3 * missing
         reasons.append(f"{missing} project(s) not found")
 
     # ============================================================
@@ -135,7 +135,7 @@ def compute_final_score_v2(repos, verification_data):
             reasons.append(f"Possible dumped code in {name}")
 
         if r.get("alignment_score", 0) < 40:
-            penalty += 2
+            penalty += 1  # reduced from 2
             reasons.append(f"Low README-code alignment in {name}")
 
         if r.get("complexity_score", 0) < 30:
@@ -143,10 +143,20 @@ def compute_final_score_v2(repos, verification_data):
             reasons.append(f"Low technical depth in {name}")
 
     if demo_strength == 0:
-        penalty += 5
+        penalty += 4
         reasons.append("No live demos found")
 
-    penalty = min(penalty, 30)
+    # ============================================================
+    # PENALTY REDUCTIONS
+    # ============================================================
+
+    if matched > 0:
+        penalty = int(penalty * 0.7)
+
+    if demo_strength > 0:
+        penalty = int(penalty * 0.8)
+
+    penalty = min(penalty, 25)
 
     # ============================================================
     # FINALIZE
@@ -159,14 +169,20 @@ def compute_final_score_v2(repos, verification_data):
     # LABELS
     # ============================================================
 
-    if final_score >= 80:
-        label = "Verified (High)"
+    if final_score >= 85:
+        label = "Strong Authentic"
+
+    elif final_score >= 70:
+        label = "Likely Authentic"
 
     elif final_score >= 55:
-        label = "Moderate (Medium)"
+        label = "Moderate Confidence"
+
+    elif final_score >= 35:
+        label = "Needs Review"
 
     else:
-        label = "Suspicious (Low)"
+        label = "Suspicious"
 
     # ============================================================
     # POSITIVE SIGNALS

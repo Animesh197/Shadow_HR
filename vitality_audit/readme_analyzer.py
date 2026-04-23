@@ -359,41 +359,68 @@ def collect_repo_evidence(owner, repo_name, repo_data):
 
     language = (repo_data.get("language") or "").lower()
 
-    package_content = ""
-    req_content = ""
-    pyproject_content = ""
+    # Always fetch all dependency files regardless of language
+    package_content = fetch_file_content(owner, repo_name, "package.json")
+    req_content = fetch_file_content(owner, repo_name, "requirements.txt")
+    pyproject_content = fetch_file_content(owner, repo_name, "pyproject.toml")
 
-    # language-aware fetch
-    if language in ["javascript", "typescript"]:
-        package_content = fetch_file_content(owner, repo_name, "package.json")
-
-    elif language == "python":
-        req_content = fetch_file_content(owner, repo_name, "requirements.txt")
-        pyproject_content = fetch_file_content(owner, repo_name, "pyproject.toml")
-
-    else:
-        package_content = fetch_file_content(owner, repo_name, "package.json")
-        req_content = fetch_file_content(owner, repo_name, "requirements.txt")
-        pyproject_content = fetch_file_content(owner, repo_name, "pyproject.toml")
+    # Additional config files
+    next_config = fetch_file_content(owner, repo_name, "next.config.js")
+    vite_config = fetch_file_content(owner, repo_name, "vite.config.js")
+    tsconfig = fetch_file_content(owner, repo_name, "tsconfig.json")
+    firebase_config = fetch_file_content(owner, repo_name, "firebase.json")
+    prisma_schema = fetch_file_content(owner, repo_name, "prisma/schema.prisma")
 
     docker_content = fetch_file_content(owner, repo_name, "Dockerfile")
-    
+
     # ------------------------------------------------------------
-    # PHASE 8 — DEPENDENCY SIGNAL CACHE
+    # PHASE 8 — DEPENDENCY SIGNAL CACHE (structured)
     # ------------------------------------------------------------
 
-    repo_data["dependency_signals"] = {
-        "package_json": package_content,
-        "requirements": req_content,
-        "pyproject": pyproject_content
-    }
+    parsed_pkg = extract_from_package_json(package_content)
+    parsed_req = extract_from_requirements(req_content)
+    parsed_pyproject = extract_from_pyproject(pyproject_content)
 
-    sources = [
-        extract_from_package_json(package_content),
-        extract_from_requirements(req_content),
-        extract_from_pyproject(pyproject_content),
-        detect_dockerfile(docker_content)
-    ]
+    all_detected = {}
+    all_detected.update(parsed_pkg)
+    all_detected.update(parsed_req)
+    all_detected.update(parsed_pyproject)
+
+    # Build structured dependency signals by category
+    dep_signals = {"frontend": [], "backend": [], "database": [], "auth": [], "ai": [], "infra": [], "other": []}
+    for tech in all_detected:
+        cat = TECH_CATEGORY_MAP.get(tech, "other")
+        if cat == "core_framework":
+            dep_signals["frontend"].append(tech)
+        elif cat == "backend":
+            dep_signals["backend"].append(tech)
+        elif cat == "database":
+            dep_signals["database"].append(tech)
+        elif cat == "ai_ml":
+            dep_signals["ai"].append(tech)
+        elif cat == "infra":
+            dep_signals["infra"].append(tech)
+        else:
+            dep_signals["other"].append(tech)
+
+    # jwt/auth detection
+    pkg_lower = package_content.lower() + req_content.lower()
+    if any(kw in pkg_lower for kw in ["jsonwebtoken", "jwt", "passport", "bcrypt", "authlib", "python-jose"]):
+        dep_signals["auth"].append("jwt/auth")
+
+    repo_data["dependency_signals"] = dep_signals
+
+    # Infer nextjs/vite from config files
+    if next_config:
+        all_detected["nextjs"] = {"source": "next.config.js", "confidence": 0.95}
+    if vite_config:
+        all_detected["react"] = all_detected.get("react") or {"source": "vite.config.js", "confidence": 0.9}
+    if prisma_schema:
+        all_detected["prisma"] = {"source": "prisma/schema.prisma", "confidence": 1.0}
+    if firebase_config:
+        all_detected["firebase"] = {"source": "firebase.json", "confidence": 1.0}
+
+    sources = [all_detected, detect_dockerfile(docker_content)]
 
     for source in sources:
         for tech, metadata in source.items():
@@ -521,6 +548,19 @@ def analyze_readme_alignment(owner, repo_name, repo_data):
         repo_name,
         repo_data
     )
+
+    # If README has no recognized tech claims but evidence exists, give partial credit
+    if not readme_claims and repo_evidence:
+        evidence_count = len(repo_evidence)
+        partial_score = min(evidence_count * 5, 40)  # up to 40 for evidence-only
+        return {
+            "alignment_score": round(partial_score, 2),
+            "verdict": classify_alignment(partial_score),
+            "confidence": compute_confidence(repo_evidence),
+            "claimed_tech": [],
+            "verified_tech": list(repo_evidence.keys()),
+            "false_claims": []
+        }
 
     weighted_ratio = calculate_weighted_match(
         readme_claims,

@@ -72,21 +72,27 @@ def check_repo_infra(owner, repo_name):
         return {
             "has_docker": False,
             "has_ci": False,
-            "has_dependencies": False
+            "has_dependencies": False,
+            "has_deployment_config": False,
+            "infra_score": 0
         }
 
     root_files = [item["name"].lower() for item in root_items]
 
     # ---------------- ROOT CHECK ----------------
     has_dependencies = any(
-        f in root_files for f in ["package.json", "requirements.txt"]
+        f in root_files for f in ["package.json", "requirements.txt", "pyproject.toml"]
     )
 
     has_docker = any(
-        f in root_files for f in ["dockerfile", "docker-compose.yml"]
+        f in root_files for f in ["dockerfile", "docker-compose.yml", "docker-compose.yaml"]
     )
 
     has_ci = any(".github" in f for f in root_files)
+
+    has_deployment_config = any(
+        f in root_files for f in ["firebase.json", "railway.toml", "vercel.json", "netlify.toml", "procfile", ".env.example"]
+    )
 
     # ---------------- SHALLOW FOLDER SCAN ----------------
     if not has_dependencies:
@@ -104,8 +110,21 @@ def check_repo_infra(owner, repo_name):
     if not has_dependencies:
         has_dependencies = check_dependencies_in_tree(owner, repo_name)
 
+    # ---------------- INFRA SCORE ----------------
+    infra_score = 0
+    if has_docker:
+        infra_score += 15
+    if has_ci:
+        infra_score += 15
+    if has_dependencies:
+        infra_score += 10
+    if has_deployment_config:
+        infra_score += 10
+
     return {
         "has_docker": has_docker,
         "has_ci": has_ci,
-        "has_dependencies": has_dependencies
+        "has_dependencies": has_dependencies,
+        "has_deployment_config": has_deployment_config,
+        "infra_score": infra_score
     }
