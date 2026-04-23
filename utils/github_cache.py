@@ -1,36 +1,36 @@
-# # ============================================================
-# # PHASE 8 — SHARED GITHUB CACHE
-# # ============================================================
-# # Goal:
-# # Prevent repeated API calls for same file.
-# # ============================================================
+# ============================================================
+# PHASE 8 — SHARED GITHUB CACHE
+# ============================================================
+# Goal:
+# Prevent repeated API calls for same file.
+# ============================================================
 
-# from threading import Lock
-
-
-# # global cache
-# _FILE_CACHE = {}
-# _CACHE_LOCK = Lock()
+from threading import Lock
 
 
-# def get_cached_file(owner, repo, path):
-
-#     key = f"{owner}/{repo}/{path}"
-
-#     with _CACHE_LOCK:
-#         return _FILE_CACHE.get(key)
+# global cache
+_FILE_CACHE = {}
+_CACHE_LOCK = Lock()
 
 
-# def set_cached_file(owner, repo, path, content):
+def get_cached_file(owner, repo, path):
 
-#     key = f"{owner}/{repo}/{path}"
+    key = f"{owner}/{repo}/{path}"
 
-#     with _CACHE_LOCK:
-#         _FILE_CACHE[key] = content
+    with _CACHE_LOCK:
+        return _FILE_CACHE.get(key)
 
 
-# def clear_cache():
-#     global _FILE_CACHE
+def set_cached_file(owner, repo, path, content):
 
-#     with _CACHE_LOCK:
-#         _FILE_CACHE = {}
+    key = f"{owner}/{repo}/{path}"
+
+    with _CACHE_LOCK:
+        _FILE_CACHE[key] = content
+
+
+def clear_cache():
+    global _FILE_CACHE
+
+    with _CACHE_LOCK:
+        _FILE_CACHE = {}
