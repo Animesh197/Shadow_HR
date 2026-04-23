@@ -473,43 +473,6 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=2
     print("\n Prefiltered Repos:")
     print([r["name"] for r in repos])
 
-    # # ---------------- ENRICH ----------------
-    # for repo in repos:
-    #     owner = repo.get("owner")
-    #     name = repo.get("name")
-
-    #     repo["infra"] = check_repo_infra(owner, name) if owner and name else {}
-
-    #     commit_data = analyze_repo_commits(owner, name) if owner and name else {}
-    #     repo["commit_details"] = {
-    #         "score": commit_data.get("commit_score", 0),
-    #         "verdict": commit_data.get("verdict", "")
-    #     }
-    #     # repo["commit_score"] = commit_data.get("commit_score", 0)
-    #     # repo["commit_verdict"] = commit_data.get("verdict", "")
-
-    #     alignment_data = analyze_readme_alignment(owner, name, repo) if owner and name else {}
-    #     # ---------------- COMPLEXITY ----------------
-    #     complexity_data = compute_complexity_score(repo)
-
-    #     repo["complexity_score"] = complexity_data.get("complexity_score", 0)
-    #     repo["complexity_verdict"] = complexity_data.get("complexity_verdict", "")
-    #     repo["complexity_reasons"] = complexity_data.get("complexity_reasons", [])
-    #     repo["alignment_score"] = alignment_data.get("alignment_score", 0)
-    #     repo["alignment_verdict"] = alignment_data.get("verdict", "")
-
-    #     # ---------------- DEMO DETECTION ----------------
-    #     repo["live_demo"] = is_demo_url_valid(
-    #         repo.get("homepage"),
-    #         demo_results
-    #     )
-
-    #     # ---------------- DEMO QUALITY ----------------
-    #     demo_data = compute_demo_quality(repo, demo_results)
-
-    #     repo["demo_score"] = demo_data.get("demo_quality_score", 0)
-    #     repo["demo_verdict"] = demo_data.get("demo_quality_verdict", "")
-    #     repo["demo_reasons"] = demo_data.get("demo_quality_reasons", [])
 
         # ---------------- ENRICH (PARALLEL) ----------------
     enriched_repos = []
