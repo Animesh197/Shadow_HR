@@ -18,6 +18,7 @@ import os
 import json
 import re
 from collections import defaultdict
+from utils.github_cache import get_cached_file, set_cached_file
 
 
 # ============================================================
@@ -153,6 +154,20 @@ SOURCE_CONFIDENCE = {
 # ============================================================
 
 def fetch_file_content(owner, repo, path):
+
+    # --------------------------------------------------------
+    # CACHE HIT
+    # --------------------------------------------------------
+
+    cached = get_cached_file(owner, repo, path)
+
+    if cached is not None:
+        return cached
+
+    # --------------------------------------------------------
+    # API FETCH
+    # --------------------------------------------------------
+
     url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
 
     headers = {
@@ -163,12 +178,22 @@ def fetch_file_content(owner, repo, path):
         response = requests.get(url, headers=headers, timeout=20)
 
         if response.status_code != 200:
+            set_cached_file(owner, repo, path, "")
             return ""
 
         data = response.json()
-        encoded_content = data.get("content", "")
 
-        return base64.b64decode(encoded_content).decode("utf-8")
+        content = base64.b64decode(
+            data.get("content", "")
+        ).decode("utf-8")
+
+        # ----------------------------------------------------
+        # CACHE STORE
+        # ----------------------------------------------------
+
+        set_cached_file(owner, repo, path, content)
+
+        return content
 
     except Exception:
         return ""
@@ -352,6 +377,16 @@ def collect_repo_evidence(owner, repo_name, repo_data):
         pyproject_content = fetch_file_content(owner, repo_name, "pyproject.toml")
 
     docker_content = fetch_file_content(owner, repo_name, "Dockerfile")
+    
+    # ------------------------------------------------------------
+    # PHASE 8 — DEPENDENCY SIGNAL CACHE
+    # ------------------------------------------------------------
+
+    repo_data["dependency_signals"] = {
+        "package_json": package_content,
+        "requirements": req_content,
+        "pyproject": pyproject_content
+    }
 
     sources = [
         extract_from_package_json(package_content),

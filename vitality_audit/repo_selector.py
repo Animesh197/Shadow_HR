@@ -12,6 +12,9 @@ from scoring.confidence_score import compute_confidence_score
 from vitality_audit.semantic_matcher import compute_semantic_similarity
 from vitality_audit.matching.matcher import match_project
 from vitality_audit.complexity_analyzer import compute_complexity_score
+from vitality_audit.demo_quality_analyzer import compute_demo_quality
+from vitality_audit.stack_sophistication_analyzer import compute_stack_score
+from concurrent.futures import ThreadPoolExecutor
 
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -126,37 +129,6 @@ def compute_infra_score(repo):
 
     return score
 
-
-# ---------------- FINAL SCORE ----------------
-# def compute_repo_score(repo):
-#     stars = repo.get("stars", 0)
-#     recency = get_recency_weight(repo.get("pushed_at"))
-#     infra = compute_infra_score(repo)
-#     commit = repo.get("commit_score", 0)
-#     alignment = repo.get("alignment_score", 0)
-#     live_demo = repo.get("live_demo", False)
-#     demo_quality = repo.get("demo_score", 0)
-
-#     stars_score = min(stars * 2, 10)
-#     recency_score = min(recency, 10)
-#     infra_score = min(infra, 10)
-#     commit_score = commit * 0.5
-#     alignment_score = alignment * 0.4
-
-#     demo_score = 10 if live_demo else 0
-#     demo_quality_score = demo_quality * 2
-
-#     score = (
-#         stars_score +
-#         recency_score +
-#         infra_score +
-#         commit_score +
-#         alignment_score +
-#         demo_score +
-#         demo_quality_score
-#     )
-
-#     return round(score, 2)
 
 
 def compute_repo_score(repo):
@@ -404,6 +376,91 @@ def prefilter_repos(repos, parsed_data, links, top_n=8):
     return selected
 
 
+# PHASE 8 — PARALLEL REPO ENRICHMENT
+# ============================================================
+
+def enrich_repo(repo, owner, demo_results):
+
+    name = repo.get("name")
+
+    # --------------------------------------------------------
+    # INFRA
+    # --------------------------------------------------------
+
+    infra_data = check_repo_infra(owner, name)
+
+    repo["infra"] = infra_data
+
+    # --------------------------------------------------------
+    # COMMITS
+    # --------------------------------------------------------
+
+    commit_data = analyze_repo_commits(owner, name)
+
+    repo.update(commit_data)
+
+    # --------------------------------------------------------
+    # README ALIGNMENT
+    # --------------------------------------------------------
+
+    alignment_data = analyze_readme_alignment(owner, name, repo)
+
+    repo["alignment_score"] = alignment_data.get(
+        "alignment_score", 0
+    )
+
+    repo["alignment_verdict"] = alignment_data.get(
+        "verdict", ""
+    )
+
+    repo["detected_tech"] = alignment_data.get(
+        "verified_tech", []
+    )
+
+    # --------------------------------------------------------
+    # COMPLEXITY
+    # --------------------------------------------------------
+
+    complexity_data = compute_complexity_score(repo)
+
+    repo.update(complexity_data)
+
+    # --------------------------------------------------------
+    # STACK
+    # --------------------------------------------------------
+
+    stack_data = compute_stack_score(repo)
+
+    repo.update(stack_data)
+
+    # --------------------------------------------------------
+    # DEMO
+    # --------------------------------------------------------
+
+    repo["live_demo"] = is_demo_url_valid(
+        repo.get("homepage"),
+        demo_results
+    )
+
+    demo_data = compute_demo_quality(repo, demo_results)
+
+    repo["demo_score"] = demo_data.get(
+        "demo_quality_score", 0
+    )
+
+    repo["demo_verdict"] = demo_data.get(
+        "demo_quality_verdict", ""
+    )
+
+    # --------------------------------------------------------
+    # FINAL SCORE
+    # --------------------------------------------------------
+
+    repo["score"] = compute_repo_score(repo)
+
+    return repo
+
+
 # ---------------- MAIN SELECTOR ----------------
 def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=2):
 
@@ -416,42 +473,70 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=2
     print("\n Prefiltered Repos:")
     print([r["name"] for r in repos])
 
-    # ---------------- ENRICH ----------------
-    for repo in repos:
-        owner = repo.get("owner")
-        name = repo.get("name")
+    # # ---------------- ENRICH ----------------
+    # for repo in repos:
+    #     owner = repo.get("owner")
+    #     name = repo.get("name")
 
-        repo["infra"] = check_repo_infra(owner, name) if owner and name else {}
+    #     repo["infra"] = check_repo_infra(owner, name) if owner and name else {}
 
-        commit_data = analyze_repo_commits(owner, name) if owner and name else {}
-        repo["commit_details"] = {
-            "score": commit_data.get("commit_score", 0),
-            "verdict": commit_data.get("verdict", "")
-        }
-        # repo["commit_score"] = commit_data.get("commit_score", 0)
-        # repo["commit_verdict"] = commit_data.get("verdict", "")
+    #     commit_data = analyze_repo_commits(owner, name) if owner and name else {}
+    #     repo["commit_details"] = {
+    #         "score": commit_data.get("commit_score", 0),
+    #         "verdict": commit_data.get("verdict", "")
+    #     }
+    #     # repo["commit_score"] = commit_data.get("commit_score", 0)
+    #     # repo["commit_verdict"] = commit_data.get("verdict", "")
 
-        alignment_data = analyze_readme_alignment(owner, name, repo) if owner and name else {}
-        # ---------------- COMPLEXITY ----------------
-        complexity_data = compute_complexity_score(repo)
+    #     alignment_data = analyze_readme_alignment(owner, name, repo) if owner and name else {}
+    #     # ---------------- COMPLEXITY ----------------
+    #     complexity_data = compute_complexity_score(repo)
 
-        repo["complexity_score"] = complexity_data.get("complexity_score", 0)
-        repo["complexity_verdict"] = complexity_data.get("complexity_verdict", "")
-        repo["complexity_reasons"] = complexity_data.get("complexity_reasons", [])
-        repo["alignment_score"] = alignment_data.get("alignment_score", 0)
-        repo["alignment_verdict"] = alignment_data.get("verdict", "")
+    #     repo["complexity_score"] = complexity_data.get("complexity_score", 0)
+    #     repo["complexity_verdict"] = complexity_data.get("complexity_verdict", "")
+    #     repo["complexity_reasons"] = complexity_data.get("complexity_reasons", [])
+    #     repo["alignment_score"] = alignment_data.get("alignment_score", 0)
+    #     repo["alignment_verdict"] = alignment_data.get("verdict", "")
 
-        repo["live_demo"] = is_demo_url_valid(repo.get("homepage"), demo_results)
+    #     # ---------------- DEMO DETECTION ----------------
+    #     repo["live_demo"] = is_demo_url_valid(
+    #         repo.get("homepage"),
+    #         demo_results
+    #     )
 
-        demo_score = 0
-        homepage_domain = extract_domain(repo.get("homepage"))
+    #     # ---------------- DEMO QUALITY ----------------
+    #     demo_data = compute_demo_quality(repo, demo_results)
 
-        for result in demo_results:
-            if extract_domain(result.get("url", "")) == homepage_domain:
-                demo_score = result.get("score", 0)
-                break
+    #     repo["demo_score"] = demo_data.get("demo_quality_score", 0)
+    #     repo["demo_verdict"] = demo_data.get("demo_quality_verdict", "")
+    #     repo["demo_reasons"] = demo_data.get("demo_quality_reasons", [])
 
-        repo["demo_score"] = demo_score
+        # ---------------- ENRICH (PARALLEL) ----------------
+    enriched_repos = []
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+
+        # futures = [
+        #     executor.submit(enrich_repo, repo, demo_results)
+        #     for repo in repos
+        # ]
+        futures = [
+            executor.submit(
+                enrich_repo,
+                repo,
+                repo.get("owner"),
+                demo_results
+            )
+            for repo in repos
+        ]
+
+        for future in futures:
+            try:
+                enriched_repos.append(future.result())
+            except Exception as e:
+                print(f"[PHASE8] Repo enrichment failed: {e}")
+
+    repos = enriched_repos
 
     # ---------------- PROJECT MATCHING ----------------
     matched_repos, project_status = match_projects_with_repos(
@@ -514,14 +599,6 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=2
             remaining_slots
         )
 
-    # if len(final_repos) == 0:
-    #     final_repos = get_skill_based_repos(
-    #         repos,
-    #         skills,
-    #         exclude_names=[],
-    #         k=k
-    #     )
-
         final_repos.extend(skill_repos)
 
     print("\n Final Selected Repositories:")
@@ -529,7 +606,7 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=2
 
     # ---------------- FINAL SCORE ----------------
     final_score, label, reasons = compute_final_score_v2(final_repos, audit_signals)
-    confidence_score, confidence_label, confidence_reasons = compute_confidence_score(final_repos ,audit_signals)
+    confidence_score, confidence_label, confidence_reasons = compute_confidence_score(final_repos,final_score ,audit_signals)
 
     return {
         "repos": final_repos,

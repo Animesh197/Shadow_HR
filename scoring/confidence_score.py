@@ -1,75 +1,110 @@
-def compute_confidence_score(repos, verification_data):
+# ============================================================
+# PHASE 7 — CONFIDENCE SCORE UPGRADE
+# ============================================================
+
+import statistics
+
+
+def compute_confidence_score(repos, verification_score, verification_data):
     """
-    Confidence Score (0–100)
-    Measures how reliable the evaluation is
+    Confidence = trustworthiness of evaluation.
     """
 
     if not repos:
-        return 0, "Low", ["No repositories available"]
+        return 0, "Low", []
 
     total_projects = verification_data.get("total_projects", 1)
-    matched = verification_data.get("matched_projects", 0)
-    missing = verification_data.get("missing_projects", 0)
+    matched_projects = verification_data.get("matched_projects", 0)
 
-    match_ratio = matched / max(total_projects, 1)
+    # ============================================================
+    # 1. PORTFOLIO SCORE CONFIDENCE
+    # ============================================================
 
-    # ---------------- COMPONENTS ----------------
+    portfolio_component = verification_score / 100
 
-    # 1. Repo coverage (more repos → more confidence)
-    repo_count = len(repos)
-    repo_score = min(repo_count / 5, 1)   # cap at 5 repos
+    # ============================================================
+    # 2. REPO SCORE CONSISTENCY
+    # ============================================================
 
-    # 2. Match ratio
-    match_score = match_ratio
+    repo_scores = [r.get("score", 0) for r in repos]
 
-    # 3. Demo presence
-    demo_score = sum(1 for r in repos if r.get("live_demo")) / len(repos)
+    if len(repo_scores) >= 2:
+        std_dev = statistics.pstdev(repo_scores)
 
-    # 4. Commit reliability
-    commit_score = sum(
-        1 for r in repos if r.get("commit_score", 0) >= 40
-    ) / len(repos)
+        # lower variance = higher confidence
+        consistency_component = max(0, 1 - (std_dev / 40))
 
-    # 5. Alignment reliability
-    alignment_score = sum(
-        1 for r in repos if r.get("alignment_score", 0) >= 40
-    ) / len(repos)
-
-    # ---------------- FINAL CONFIDENCE ----------------
-    confidence = (
-        repo_score * 0.25 +
-        match_score * 0.25 +
-        demo_score * 0.2 +
-        commit_score * 0.15 +
-        alignment_score * 0.15
-    ) * 100
-
-    confidence = round(confidence, 2)
-
-    # ---------------- LABEL ----------------
-    if confidence >= 75:
-        label = "High"
-    elif confidence >= 50:
-        label = "Medium"
     else:
-        label = "Low"
+        consistency_component = 0.5
 
-    # ---------------- REASONS ----------------
-    reasons = []
+    # ============================================================
+    # 3. MATCH QUALITY
+    # ============================================================
 
-    if repo_count < 3:
-        reasons.append("Few repositories analyzed")
+    match_component = matched_projects / max(total_projects, 1)
+# ============================================================
+    # 4. SIGNAL AGREEMENT
+    # ============================================================
 
-    if match_ratio < 0.5:
-        reasons.append("Low project-repo match ratio")
+    agreement_scores = []
 
-    if demo_score == 0:
-        reasons.append("No live demos found")
+    for repo in repos[:5]:
 
-    if commit_score < 0.5:
-        reasons.append("Weak commit activity")
+        agreement = 0
 
-    if alignment_score < 0.5:
-        reasons.append("Low code-README alignment")
+        if repo.get("commit_score", 0) >= 60:
+            agreement += 1
 
-    return confidence, label, reasons
+        if repo.get("alignment_score", 0) >= 60:
+            agreement += 1
+
+        if repo.get("complexity_score", 0) >= 60:
+            agreement += 1
+
+        if repo.get("demo_score", 0) >= 5:
+            agreement += 1
+
+        agreement_scores.append(agreement / 4)
+
+    signal_agreement = (
+        sum(agreement_scores) / len(agreement_scores)
+        if agreement_scores else 0
+    )
+
+    # ============================================================
+    # 5. REPO COUNT CONFIDENCE
+    # ============================================================
+
+    repo_count = len(repos)
+
+    if repo_count >= 8:
+        repo_count_component = 1.0
+    elif repo_count >= 5:
+        repo_count_component = 0.8
+    elif repo_count >= 3:
+        repo_count_component = 0.6
+    else:
+        repo_count_component = 0.4
+
+    # ============================================================
+    # FINAL CONFIDENCE
+    # ============================================================
+
+    confidence = (
+        portfolio_component * 0.25 +
+        consistency_component * 0.20 +
+        match_component * 0.20 +
+        signal_agreement * 0.20 +
+        repo_count_component * 0.15
+    )
+
+    confidence = confidence * 100
+
+    # ============================================================
+    # CLAMP
+    # ============================================================
+
+    confidence = max(0, min(100, confidence))
+
+    label = "High" if confidence >= 75 else "Medium" if confidence >= 50 else "Low"
+    return round(confidence, 2), label, []

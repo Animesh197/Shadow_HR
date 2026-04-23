@@ -1,6 +1,10 @@
+# ============================================================
+# PHASE 6 — PORTFOLIO SCORE UPGRADE
+# ============================================================
+
 def compute_final_score_v2(repos, verification_data):
     """
-    Scoring V2 + Explanation Layer
+    Portfolio-level credibility score.
     """
 
     if not repos:
@@ -14,38 +18,89 @@ def compute_final_score_v2(repos, verification_data):
 
     match_ratio = matched / max(total_projects, 1)
 
-    # ---------------- BASE COMPONENTS ----------------
+    # ============================================================
+    # 1. REPO STRENGTH
+    # ============================================================
+
     weights = [0.5, 0.3, 0.2]
-    weighted_score = sum(
+
+    weighted_repo_score = sum(
         repos[i].get("score", 0) * weights[i]
         for i in range(min(3, len(repos)))
     ) / 100
 
+    # ============================================================
+    # 2. CONSISTENCY
+    # ============================================================
+
     consistency_scores = []
+
     for r in repos[:5]:
+
         c = 0
+
         if r.get("live_demo"):
             c += 1
-        if r.get("commit_score", 0) >= 50:
-            c += 1
-        if r.get("alignment_score", 0) >= 40:
-            c += 1
-        consistency_scores.append(c / 3)
 
-    consistency = sum(consistency_scores) / len(consistency_scores) if consistency_scores else 0
-    demo_strength = sum(1 for r in repos if r.get("live_demo")) / len(repos)
-    strong_repos = sum(1 for r in repos if r.get("score", 0) >= 70)
-    diversity = min(strong_repos / 3, 1)
+        if r.get("commit_score", 0) >= 60:
+            c += 1
 
-    final_score = (
-        weighted_score * 100 * 0.4 +
-        match_ratio * 100 * 0.25 +
-        consistency * 100 * 0.15 +
-        demo_strength * 100 * 0.1 +
-        diversity * 100 * 0.1
+        if r.get("alignment_score", 0) >= 60:
+            c += 1
+
+        if r.get("complexity_score", 0) >= 60:
+            c += 1
+
+        consistency_scores.append(c / 4)
+
+    consistency = (
+        sum(consistency_scores) / len(consistency_scores)
+        if consistency_scores else 0
+    )
+    # ============================================================
+    # 3. DEMO STRENGTH
+    # ============================================================
+
+    demo_strength = sum(
+        1 for r in repos if r.get("demo_score", 0) >= 5
+    ) / len(repos)
+
+    # ============================================================
+    # 4. DIVERSITY
+    # ============================================================
+
+    strong_repos = sum(
+        1 for r in repos
+        if r.get("score", 0) >= 70
     )
 
-    # ---------------- PENALTIES ----------------
+    diversity = min(strong_repos / 3, 1)
+
+    # ============================================================
+    # 5. COMPLEXITY INDEX
+    # ============================================================
+
+    complexity_index = sum(
+        r.get("complexity_score", 0)
+        for r in repos
+    ) / (len(repos) * 100)
+
+    # ============================================================
+    # 6. FINAL SCORE
+    # ============================================================
+
+    final_score = (
+        weighted_repo_score * 100 * 0.35 +
+        match_ratio * 100 * 0.20 +
+        consistency * 100 * 0.15 +
+        demo_strength * 100 * 0.10 +
+        diversity * 100 * 0.10 +
+        complexity_index * 100 * 0.10
+    )
+# ============================================================
+    # PENALTIES
+    # ============================================================
+
     penalty = 0
     reasons = []
 
@@ -54,14 +109,21 @@ def compute_final_score_v2(repos, verification_data):
     if missing_ratio > 0.7:
         penalty += 18
         reasons.append("Most claimed projects not found")
+
     elif missing_ratio > 0.4:
         penalty += 10
         reasons.append("Many claimed projects missing")
+
     elif missing > 0:
         penalty += 4 * missing
         reasons.append(f"{missing} project(s) not found")
 
+    # ============================================================
+    # SIGNAL PENALTIES
+    # ============================================================
+
     for r in repos:
+
         name = r.get("name", "repo")
 
         if r.get("commit_score", 0) <= 20:
@@ -76,35 +138,52 @@ def compute_final_score_v2(repos, verification_data):
             penalty += 2
             reasons.append(f"Low README-code alignment in {name}")
 
+        if r.get("complexity_score", 0) < 30:
+            penalty += 1
+            reasons.append(f"Low technical depth in {name}")
+
     if demo_strength == 0:
         penalty += 5
         reasons.append("No live demos found")
 
     penalty = min(penalty, 30)
 
-    # ---------------- FINAL ----------------
+    # ============================================================
+    # FINALIZE
+    # ============================================================
+
     final_score -= penalty
     final_score = max(0, min(100, final_score))
 
-    # ---------------- LABEL ----------------
-    if final_score >= 75:
+    # ============================================================
+    # LABELS
+    # ============================================================
+
+    if final_score >= 80:
         label = "Verified (High)"
-    elif final_score >= 50:
+
+    elif final_score >= 55:
         label = "Moderate (Medium)"
+
     else:
         label = "Suspicious (Low)"
 
-    # ---------------- POSITIVE SIGNALS ----------------
+    # ============================================================
+    # POSITIVE SIGNALS
+    # ============================================================
+
     if match_ratio >= 0.7:
         reasons.append("Most projects successfully verified")
 
     if demo_strength > 0:
         reasons.append("Live demos detected")
 
-    if consistency > 0.6:
-        reasons.append("Consistent quality across repositories")
+    if complexity_index >= 0.6:
+        reasons.append("Technically sophisticated portfolio")
 
-    # remove duplicates
+    if consistency >= 0.7:
+        reasons.append("Consistent engineering quality")
+
     reasons = list(set(reasons))
 
     return round(final_score, 2), label, reasons
