@@ -4,6 +4,9 @@ from datetime import datetime
 
 GITHUB_API = "https://api.github.com"
 
+# Simple in-process cache for commit results
+_COMMIT_CACHE = {}
+
 
 # Step 1: Fetch Commit Data from GitHub API
 def fetch_commits(owner, repo, max_commits=100):
@@ -211,30 +214,25 @@ def analyze_commit_pattern(dates):
         "commit_score": round(score),
         "verdict": verdict
     }
-    
+
 
 
 def analyze_repo_commits(owner, repo):
+    cache_key = f"{owner}/{repo}"
+    if cache_key in _COMMIT_CACHE:
+        return _COMMIT_CACHE[cache_key]
+
     commits = fetch_commits(owner, repo)
 
-    # Handle special cases
     if commits == "RATE_LIMIT":
-        return {
-            "commit_score": 0,
-            "verdict": "Rate limit exceeded — commit data unavailable"
-        }
+        result = {"commit_score": 0, "verdict": "Rate limit exceeded — commit data unavailable"}
+    elif commits == "EMPTY_REPO":
+        result = {"commit_score": 5, "verdict": "Empty repository — no commits"}
+    elif commits == "ERROR":
+        result = {"commit_score": 0, "verdict": "Error fetching commit data"}
+    else:
+        dates = extract_commit_dates(commits)
+        result = analyze_commit_pattern(dates)
 
-    if commits == "EMPTY_REPO":
-        return {
-            "commit_score": 5,
-            "verdict": "Empty repository — no commits"
-        }
-
-    if commits == "ERROR":
-        return {
-            "commit_score": 0,
-            "verdict": "Error fetching commit data"
-        }
-
-    dates = extract_commit_dates(commits)
-    return analyze_commit_pattern(dates)
+    _COMMIT_CACHE[cache_key] = result
+    return result

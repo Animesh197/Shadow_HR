@@ -194,6 +194,7 @@ def compute_repo_score(repo):
 
 
 from vitality_audit.readme_analyzer import fetch_readme as _fetch_readme_raw
+from vitality_audit.semantic_matcher import compute_semantic_similarity, batch_precompute_embeddings
 
 def fetch_readme(owner, repo):
     """Fetch README content (uses authenticated call from readme_analyzer)."""
@@ -220,6 +221,14 @@ def match_projects_with_repos(repos, projects, pulse_results, demo_results):
                 readme_cache[name] = fetch_readme(owner, name)
             else:
                 readme_cache[name] = ""
+
+    # Batch precompute embeddings for all projects + repo names/descs/readmes
+    texts_to_encode = list(projects)
+    for repo in repos:
+        texts_to_encode.append(repo.get("name", ""))
+        texts_to_encode.append(repo.get("description") or "")
+        texts_to_encode.append(readme_cache.get(repo.get("name", ""), "")[:1000])
+    batch_precompute_embeddings([t for t in texts_to_encode if t])
 
     # ---------------- PROJECT MATCHING ----------------
     for proj in projects:
@@ -386,34 +395,25 @@ def enrich_repo(repo, owner, demo_results):
     name = repo.get("name")
 
     # --------------------------------------------------------
-    # INFRA
+    # RUN INFRA + COMMITS + README IN PARALLEL
     # --------------------------------------------------------
 
-    infra_data = check_repo_infra(owner, name)
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=3) as inner:
+        f_infra = inner.submit(check_repo_infra, owner, name)
+        f_commits = inner.submit(analyze_repo_commits, owner, name)
+        f_alignment = inner.submit(analyze_readme_alignment, owner, name, repo)
+
+        infra_data = f_infra.result()
+        commit_data = f_commits.result()
+        alignment_data = f_alignment.result()
 
     repo["infra"] = infra_data
-
-    # --------------------------------------------------------
-    # COMMITS
-    # --------------------------------------------------------
-
-    commit_data = analyze_repo_commits(owner, name)
-
     repo.update(commit_data)
 
-    # --------------------------------------------------------
-    # README ALIGNMENT
-    # --------------------------------------------------------
-
-    alignment_data = analyze_readme_alignment(owner, name, repo)
-
-    repo["alignment_score"] = alignment_data.get(
-        "alignment_score", 0
-    )
-
-    repo["alignment_verdict"] = alignment_data.get(
-        "verdict", ""
-    )
+    repo["alignment_score"] = alignment_data.get("alignment_score", 0)
+    repo["alignment_verdict"] = alignment_data.get("verdict", "")
 
     # Merge detected_tech from README verified_tech + dependency signals
     readme_tech = alignment_data.get("verified_tech", [])
@@ -425,39 +425,24 @@ def enrich_repo(repo, owner, demo_results):
     repo["detected_tech"] = list(set(readme_tech + dep_tech))
 
     # --------------------------------------------------------
-    # COMPLEXITY
+    # COMPLEXITY + STACK (depend on detected_tech, run after)
     # --------------------------------------------------------
 
     complexity_data = compute_complexity_score(repo)
-
     repo.update(complexity_data)
 
-    # --------------------------------------------------------
-    # STACK
-    # --------------------------------------------------------
-
     stack_data = compute_stack_score(repo)
-
     repo.update(stack_data)
 
     # --------------------------------------------------------
     # DEMO
     # --------------------------------------------------------
 
-    repo["live_demo"] = is_demo_url_valid(
-        repo.get("homepage"),
-        demo_results
-    )
+    repo["live_demo"] = is_demo_url_valid(repo.get("homepage"), demo_results)
 
     demo_data = compute_demo_quality(repo, demo_results)
-
-    repo["demo_score"] = demo_data.get(
-        "demo_quality_score", 0
-    )
-
-    repo["demo_verdict"] = demo_data.get(
-        "demo_quality_verdict", ""
-    )
+    repo["demo_score"] = demo_data.get("demo_quality_score", 0)
+    repo["demo_verdict"] = demo_data.get("demo_quality_verdict", "")
 
     # --------------------------------------------------------
     # FINAL SCORE

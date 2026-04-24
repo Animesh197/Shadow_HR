@@ -3,6 +3,9 @@ import os
 
 GITHUB_API = "https://api.github.com"
 
+# Simple in-process cache for infra results
+_INFRA_CACHE = {}
+
 
 # ---------------- HEADERS (IMPORTANT) ----------------
 def get_headers():
@@ -64,6 +67,10 @@ def check_dependencies_in_tree(owner, repo_name):
 
 # ---------------- MAIN FUNCTION ----------------
 def check_repo_infra(owner, repo_name):
+    cache_key = f"{owner}/{repo_name}"
+    if cache_key in _INFRA_CACHE:
+        return _INFRA_CACHE[cache_key]
+
     base_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/contents"
 
     root_items = get_repo_contents(base_url)
@@ -121,10 +128,13 @@ def check_repo_infra(owner, repo_name):
     if has_deployment_config:
         infra_score += 10
 
-    return {
+    result = {
         "has_docker": has_docker,
         "has_ci": has_ci,
         "has_dependencies": has_dependencies,
         "has_deployment_config": has_deployment_config,
         "infra_score": infra_score
     }
+
+    _INFRA_CACHE[cache_key] = result
+    return result

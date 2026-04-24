@@ -105,7 +105,7 @@ def run_audit_pipeline(pdf_path):
     # ---------------- Demo Validation ----------------
     print("\n Validating Demo URLs...\n")
 
-    demo_results = evaluate_all_urls(all_links)
+    demo_results = evaluate_all_urls(all_links, pulse_results)
 
     for d in demo_results:
         print(d)

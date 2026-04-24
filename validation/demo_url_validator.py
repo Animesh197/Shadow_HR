@@ -55,10 +55,22 @@ def classify_url(url):
     return "unknown"
 
 
-def check_url_status(url):
+def check_url_status(url, pulse_results=None):
+    # Reuse pulse check result if available to avoid duplicate fetch
+    if pulse_results:
+        for p in pulse_results:
+            if p.get("url") == url:
+                status = p.get("status")
+                # pulse only gives status, not html — still need html for interactivity
+                if status is not None and status >= 400:
+                    return status, ""
+                if status is None:
+                    return None, ""
+                break
+
     try:
         response = requests.get(url, timeout=5)
-        return response.status_code, response.text[:2000]  # limit content
+        return response.status_code, response.text[:2000]
     except Exception:
         return None, ""
 
@@ -80,7 +92,7 @@ def detect_interactivity(html):
     return False
 
 
-def evaluate_demo_url(url):
+def evaluate_demo_url(url, pulse_results=None):
     result = {
         "url": url,
         "type": None,
@@ -105,9 +117,9 @@ def evaluate_demo_url(url):
 
         return result
 
-    status, html = check_url_status(url)
-    # NEW: fallback to Playwright if HTML is weak
-    if html and len(html) < 1000:
+    status, html = check_url_status(url, pulse_results)
+    # fallback to Playwright only if html is weak and status was OK
+    if status and status < 400 and html and len(html) < 1000:
         rendered_html = fetch_rendered_html(url)
         if rendered_html:
             html = rendered_html
@@ -124,22 +136,19 @@ def evaluate_demo_url(url):
         result["remarks"] = "Broken link"
         return result
 
-    # Video demo
     if url_type == "video_demo":
         result["score"] = 2
         result["remarks"] = "Video demo available"
         return result
 
-    # Hosted demo
     interactive = detect_interactivity(html)
 
-    # If still not interactive → try browser rendering
     if not interactive:
         rendered_html = fetch_rendered_html(url)
-
         if rendered_html:
             interactive = detect_interactivity(rendered_html)
-            html = rendered_html  # update for scoring
+            html = rendered_html
+
     result["is_interactive"] = interactive
 
     if interactive:
@@ -152,11 +161,29 @@ def evaluate_demo_url(url):
     return result
 
 
-def evaluate_all_urls(urls):
-    results = []
+def evaluate_all_urls(urls, pulse_results=None):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    for url in urls:
-        res = evaluate_demo_url(url)
-        results.append(res)
+    results = [None] * len(urls)
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        future_to_idx = {
+            executor.submit(evaluate_demo_url, url, pulse_results): i
+            for i, url in enumerate(urls)
+        }
+
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                results[idx] = future.result()
+            except Exception as e:
+                results[idx] = {
+                    "url": urls[idx],
+                    "type": "unknown",
+                    "status": None,
+                    "is_interactive": False,
+                    "score": 0,
+                    "remarks": f"Error: {e}"
+                }
 
     return results
