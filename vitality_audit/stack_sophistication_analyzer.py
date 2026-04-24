@@ -1,66 +1,45 @@
-# ============================================================
-# PHASE 5 — STACK SOPHISTICATION ANALYZER
-# ============================================================
-# Goal:
-# Reward advanced engineering stacks.
-#
-# Output:
-# stack_score → 0–100
-# stack_verdict
-# ============================================================
-
-
 TECH_SCORES = {
-
     # frontend
-    "react": 6,
-    "nextjs": 7,
-    "vue": 5,
-    "angular": 6,
-    "svelte": 6,
-
+    "react": 6, "nextjs": 9, "vue": 5, "angular": 6, "svelte": 6,
     # backend
-    "express": 5,
-    "fastapi": 7,
-    "django": 6,
-    "nestjs": 7,
-    "flask": 4,
-
+    "express": 5, "fastapi": 7, "django": 6, "nestjs": 7, "flask": 4,
     # database
-    "mongodb": 5,
-    "postgresql": 6,
-    "mysql": 4,
-    "redis": 5,
-
+    "mongodb": 5, "postgresql": 6, "mysql": 4, "redis": 6, "prisma": 8,
     # infra
-    "docker": 8,
-    "kubernetes": 10,
-    "nginx": 6,
-
+    "docker": 8, "kubernetes": 10, "nginx": 6, "vercel": 4,
     # ai/ml
-    "tensorflow": 10,
-    "pytorch": 10,
-    "langchain": 9,
-    "openai": 7,
-    "transformers": 8,
-
-    # orm
-    "prisma": 7,
-    "sequelize": 5,
-    "typeorm": 5,
-
-    # tooling
-    "graphql": 7,
-    "socketio": 6,
-    "tailwind": 3,
-    "axios": 2,
+    "tensorflow": 10, "pytorch": 10, "langchain": 9, "langgraph": 10,
+    "openai": 7, "transformers": 8, "groq": 7,
+    # orm / data
+    "sequelize": 5, "typeorm": 5,
+    # tooling / ui
+    "graphql": 7, "socketio": 6, "tailwind": 4, "axios": 2,
+    "zustand": 5, "radix": 4, "clerk": 5,
+    # aws
+    "aws": 8,
 }
-# ============================================================
-# MAIN STACK SCORING
-# ============================================================
+
+# Ecosystem synergy bonuses
+SYNERGY_BONUSES = [
+    ({"react", "nextjs"},                                    10, "React + NextJS ecosystem"),
+    ({"nextjs", "prisma", "tailwind"},                       15, "NextJS + Prisma + Tailwind stack"),
+    ({"express", "mongodb"},                                  8, "MERN backend"),
+    ({"fastapi", "postgresql"},                               8, "FastAPI + PostgreSQL"),
+    ({"langchain", "openai"},                                12, "LangChain + OpenAI AI stack"),
+    ({"langchain", "groq"},                                  12, "LangChain + Groq AI stack"),
+    ({"langgraph", "langchain"},                             15, "LangGraph agent stack"),
+    ({"react", "express", "mongodb"},                        10, "Full MERN stack"),
+    ({"nextjs", "prisma", "postgresql"},                     12, "NextJS + Prisma + PostgreSQL"),
+    ({"fastapi", "langchain", "openai"},                     15, "AI API stack"),
+    ({"clerk", "prisma", "nextjs"},                          12, "Auth + ORM + NextJS"),
+    ({"redis", "express"},                                    6, "Caching layer"),
+    ({"docker", "express"},                                   8, "Containerized backend"),
+    ({"zustand", "react"},                                    6, "State management"),
+    ({"socketio", "express"},                                 8, "Real-time backend"),
+]
+
 
 def compute_stack_score(repo):
-
     score = 0
     reasons = []
 
@@ -73,59 +52,39 @@ def compute_stack_score(repo):
             "stack_reasons": []
         }
 
-    # --------------------------------------------------------
-    # UNIQUE STACK
-    # --------------------------------------------------------
+    unique_tech = set(tech.lower() for tech in detected_tech)
 
-    unique_tech = set([tech.lower() for tech in detected_tech])
-
-    # --------------------------------------------------------
-    # TECH WEIGHT ACCUMULATION
-    # --------------------------------------------------------
-
+    # Tech weight accumulation
     for tech in unique_tech:
-
         if tech in TECH_SCORES:
             score += TECH_SCORES[tech]
-            reasons.append(f"{tech} contributes to sophistication")
+            reasons.append(f"{tech} detected")
 
-    # --------------------------------------------------------
-    # STACK BREADTH BONUS
-    # --------------------------------------------------------
-
+    # Breadth bonus
     tech_count = len(unique_tech)
-
     if tech_count >= 10:
         score += 20
         reasons.append("Large ecosystem stack")
-
     elif tech_count >= 7:
         score += 15
         reasons.append("Broad technology stack")
-
+    elif tech_count >= 6:
+        score += 12
+        reasons.append("Strong technology stack")
     elif tech_count >= 5:
         score += 10
         reasons.append("Moderate technology diversity")
-        # --------------------------------------------------------
-    # ADVANCED STACK COMBINATIONS
-    # --------------------------------------------------------
+    elif tech_count >= 3:
+        score += 5
+        reasons.append("Basic technology diversity")
 
-    advanced_bonus = compute_advanced_stack_bonus(unique_tech)
-
-    score += advanced_bonus
-
-    if advanced_bonus > 0:
-        reasons.append("Advanced architecture combination detected")
-
-    # --------------------------------------------------------
-    # CAP
-    # --------------------------------------------------------
+    # Synergy bonuses
+    for tech_set, bonus, label in SYNERGY_BONUSES:
+        if tech_set.issubset(unique_tech):
+            score += bonus
+            reasons.append(label)
 
     score = min(score, 100)
-
-    # --------------------------------------------------------
-    # VERDICT
-    # --------------------------------------------------------
 
     if score >= 85:
         verdict = "Highly sophisticated engineering stack"
@@ -141,53 +100,3 @@ def compute_stack_score(repo):
         "stack_verdict": verdict,
         "stack_reasons": reasons
     }
-
-# ============================================================
-# ADVANCED STACK BONUS
-# ============================================================
-
-def compute_advanced_stack_bonus(unique_tech):
-
-    bonus = 0
-
-    # --------------------------------------------------------
-    # AI + Backend
-    # --------------------------------------------------------
-
-    ai_stack = {
-        "tensorflow", "pytorch", "langchain", "openai", "transformers"
-    }
-
-    backend = {
-        "express", "fastapi", "django", "flask", "nestjs"
-    }
-
-    database = {
-        "mongodb", "postgresql", "mysql", "redis"
-    }
-
-    infra = {
-        "docker", "kubernetes", "nginx"
-    }
-
-    frontend = {
-        "react", "nextjs", "vue", "angular", "svelte"
-    }
-
-    # --------------------------------------------------------
-    # Combination scoring
-    # --------------------------------------------------------
-
-    if unique_tech.intersection(ai_stack) and unique_tech.intersection(backend):
-        bonus += 10
-
-    if unique_tech.intersection(frontend) and unique_tech.intersection(backend):
-        bonus += 8
-
-    if unique_tech.intersection(database) and unique_tech.intersection(backend):
-        bonus += 6
-
-    if unique_tech.intersection(infra):
-        bonus += 6
-
-    return min(bonus, 25)

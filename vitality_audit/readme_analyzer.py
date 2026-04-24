@@ -552,7 +552,7 @@ def analyze_readme_alignment(owner, repo_name, repo_data):
     # If README has no recognized tech claims but evidence exists, give partial credit
     if not readme_claims and repo_evidence:
         evidence_count = len(repo_evidence)
-        partial_score = min(evidence_count * 5, 40)  # up to 40 for evidence-only
+        partial_score = min(evidence_count * 8, 60)
         return {
             "alignment_score": round(partial_score, 2),
             "verdict": classify_alignment(partial_score),

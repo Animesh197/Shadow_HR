@@ -57,15 +57,11 @@ def compute_demo_quality(repo, demo_results):
 
         if extract_domain(url) == homepage_domain:
 
-            # ------------------------------------------------
-            # Demo validator already scored quality
-            # ------------------------------------------------
-
-            if demo_score >= 80:
+            if demo_score >= 3:
                 score += 3
                 reasons.append("Strong demo validation")
 
-            elif demo_score >= 50:
+            elif demo_score >= 2:
                 score += 2
                 reasons.append("Moderate demo validation")
 

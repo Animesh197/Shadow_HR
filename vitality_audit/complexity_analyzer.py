@@ -1,115 +1,91 @@
-# ============================================================
-# PHASE 3 — PROJECT COMPLEXITY ANALYZER
-# ============================================================
-# Goal:
-# Estimate engineering sophistication of a repository.
-#
-# Output:
-# complexity_score → 0–100
-# complexity_verdict → label
-# ============================================================
-
-
 def compute_complexity_score(repo):
 
     score = 0
     reasons = []
 
-    # --------------------------------------------------------
-    # INPUTS AVAILABLE FROM EXISTING PIPELINE
-    # --------------------------------------------------------
-
     language = (repo.get("language") or "").lower()
     infra = repo.get("infra", {})
-
     alignment_score = repo.get("alignment_score", 0)
     commit_score = repo.get("commit_score", 0)
-
-    # optional future field
     detected_tech = repo.get("detected_tech", [])
+    description = repo.get("description") or ""
+    stars = repo.get("stars", 0)
 
     # --------------------------------------------------------
-    # 1. LANGUAGE BASE SCORE
+    # GATED BASELINE — reward repos with real substance
     # --------------------------------------------------------
 
-    if language:
-        score += 10
-        reasons.append("Primary language detected")
+    has_commits = commit_score > 10
+    has_deps = infra.get("has_dependencies", False)
+    has_readme_or_desc = alignment_score > 0 or len(description) > 10
+
+    if has_commits and has_deps and has_readme_or_desc:
+        score += 18
+        reasons.append("Repo quality baseline met")
 
     # --------------------------------------------------------
-    # 2. INFRA COMPLEXITY
+    # LOGIC / ARCHITECTURE (60% of weight)
     # --------------------------------------------------------
 
-    if infra.get("has_docker"):
-        score += 12
-        reasons.append("Docker detected")
-
-    if infra.get("has_ci"):
-        score += 10
-        reasons.append("CI pipeline detected")
-
-    if infra.get("has_dependencies"):
-        score += 8
-        reasons.append("Dependency ecosystem detected")
-
-    # --------------------------------------------------------
-    # 3. PROJECT MATURITY SIGNALS
-    # --------------------------------------------------------
-
+    # commit maturity
     if commit_score >= 80:
-        score += 15
+        score += 18
         reasons.append("Strong iterative development")
-
     elif commit_score >= 60:
-        score += 10
+        score += 12
         reasons.append("Moderate development maturity")
-
     elif commit_score >= 40:
-        score += 5
+        score += 6
         reasons.append("Basic development lifecycle")
 
-    # --------------------------------------------------------
-    # 4. README TECH DEPTH
-    # --------------------------------------------------------
+    # architecture bonus (frontend+backend, backend+db, auth+api)
+    architecture_bonus = compute_architecture_bonus(detected_tech)
+    score += architecture_bonus
+    if architecture_bonus > 0:
+        reasons.append("Multi-layer architecture detected")
 
-    if alignment_score >= 80:
-        score += 10
+    # README depth
+    if alignment_score >= 60:
+        score += 8
         reasons.append("Strong README technical alignment")
-
-    elif alignment_score >= 60:
-        score += 6
+    elif alignment_score >= 35:
+        score += 4
         reasons.append("Moderate README depth")
 
     # --------------------------------------------------------
-    # 5. DETECTED STACK COMPLEXITY
+    # TECH DEPTH (25% of weight)
     # --------------------------------------------------------
 
     stack_bonus = compute_stack_depth_bonus(detected_tech)
-
     score += stack_bonus
-
     if stack_bonus > 0:
         reasons.append("Multi-tech architecture detected")
 
     # --------------------------------------------------------
-    # 6. MULTI-LAYER ARCHITECTURE BONUS
+    # INFRA BONUS ONLY (15% of weight)
     # --------------------------------------------------------
 
-    architecture_bonus = compute_architecture_bonus(detected_tech)
+    if infra.get("has_docker"):
+        score += 8
+        reasons.append("Docker detected")
 
-    score += architecture_bonus
+    if infra.get("has_ci"):
+        score += 6
+        reasons.append("CI pipeline detected")
 
-    if architecture_bonus > 0:
-        reasons.append("Multi-layer architecture detected")
+    if infra.get("has_deployment_config"):
+        score += 4
+        reasons.append("Deployment config detected")
+
+    if infra.get("has_dependencies"):
+        score += 4
+        reasons.append("Dependency ecosystem detected")
+
     # --------------------------------------------------------
-    # CAP
+    # CAP + VERDICT
     # --------------------------------------------------------
 
     score = min(score, 100)
-
-    # --------------------------------------------------------
-    # VERDICT
-    # --------------------------------------------------------
 
     if score >= 85:
         verdict = "Highly complex engineering project"
@@ -127,12 +103,7 @@ def compute_complexity_score(repo):
     }
 
 
-# ============================================================
-# STACK DEPTH BONUS
-# ============================================================
-
 def compute_stack_depth_bonus(detected_tech):
-
     if not detected_tech:
         return 0
 
@@ -148,61 +119,32 @@ def compute_stack_depth_bonus(detected_tech):
         return 5
 
     return 0
-# ============================================================
-# ARCHITECTURE BONUS
-# ============================================================
+
 
 def compute_architecture_bonus(detected_tech):
-
     if not detected_tech:
         return 0
 
-    detected = set([t.lower() for t in detected_tech])
+    detected = set(t.lower() for t in detected_tech)
 
-    frontend = {
-        "react", "nextjs", "vue", "angular", "svelte"
-    }
-
-    backend = {
-        "express", "django", "flask", "fastapi", "nestjs"
-    }
-
-    database = {
-        "mongodb", "postgresql", "mysql", "redis"
-    }
-
-    ai_stack = {
-        "tensorflow", "pytorch", "langchain", "openai", "transformers"
-    }
-
-    infra = {
-        "docker", "kubernetes", "nginx"
-    }
+    frontend  = {"react", "nextjs", "vue", "angular", "svelte"}
+    backend   = {"express", "django", "flask", "fastapi", "nestjs"}
+    database  = {"mongodb", "postgresql", "mysql", "redis", "prisma"}
+    ai_stack  = {"tensorflow", "pytorch", "langchain", "openai", "transformers", "groq", "langgraph"}
+    infra_set = {"docker", "kubernetes", "nginx"}
+    auth      = {"jwt", "clerk", "passport", "authlib"}
 
     categories = 0
+    if detected.intersection(frontend):   categories += 1
+    if detected.intersection(backend):    categories += 1
+    if detected.intersection(database):   categories += 1
+    if detected.intersection(ai_stack):   categories += 1
+    if detected.intersection(infra_set):  categories += 1
+    if detected.intersection(auth):       categories += 1
 
-    if detected.intersection(frontend):
-        categories += 1
-
-    if detected.intersection(backend):
-        categories += 1
-
-    if detected.intersection(database):
-        categories += 1
-
-    if detected.intersection(ai_stack):
-        categories += 1
-
-    if detected.intersection(infra):
-        categories += 1
-
-    if categories >= 5:
-        return 20
-    elif categories >= 4:
-        return 15
-    elif categories >= 3:
-        return 10
-    elif categories >= 2:
-        return 5
+    if categories >= 5:  return 22
+    elif categories >= 4: return 16
+    elif categories >= 3: return 10
+    elif categories >= 2: return 6
 
     return 0

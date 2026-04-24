@@ -44,17 +44,10 @@ SKILL_EVIDENCE_MAP = {
 }
 
 
-def compute_skill_validation(skills, repos):
+def compute_skill_validation(skills, repos, all_repos=None):
     """
-    Cross-reference resume skills against detected_tech across all repos.
-
-    Returns:
-        {
-            "verified": [...],
-            "weak_evidence": [...],
-            "unsupported": [...],
-            "validation_score": 0-100
-        }
+    Cross-reference resume skills against detected_tech.
+    Scans final_repos deeply + lightweight scan of all_repos (top 15–20).
     """
 
     if not skills or not repos:
@@ -65,41 +58,72 @@ def compute_skill_validation(skills, repos):
             "validation_score": 0
         }
 
-    # Collect all detected tech across repos
+    # Collect detected tech from final repos (deep)
     all_detected = set()
     for repo in repos:
         for tech in repo.get("detected_tech", []):
             all_detected.add(tech.lower())
-
-        # Also check dependency_signals
         dep_signals = repo.get("dependency_signals", {})
         for techs in dep_signals.values():
             for t in techs:
                 all_detected.add(t.lower())
 
+    # Lightweight scan of broader repo pool (topics, description, language)
+    scan_pool = all_repos or []
+    for repo in scan_pool[:20]:
+        lang = (repo.get("language") or "").lower()
+        if lang:
+            all_detected.add(lang)
+        for topic in (repo.get("topics") or []):
+            all_detected.add(topic.lower())
+        desc = (repo.get("description") or "").lower()
+        for tech in SKILL_EVIDENCE_MAP:
+            if tech in desc:
+                all_detected.add(tech)
+
     verified = []
     weak_evidence = []
     unsupported = []
+
+    # Language/ecosystem inference map for medium evidence
+    ECOSYSTEM_MAP = {
+        "javascript": {"react", "nextjs", "express", "vue", "angular", "node.js"},
+        "typescript": {"react", "nextjs", "express", "nestjs", "angular"},
+        "python": {"fastapi", "django", "flask", "langchain", "tensorflow", "pytorch"},
+    }
 
     for skill in skills:
         skill_lower = skill.lower()
         evidence_keys = SKILL_EVIDENCE_MAP.get(skill_lower, [skill_lower])
 
-        # Strong match: skill directly in detected tech
+        # Strong evidence: exact dependency/import match
         if skill_lower in all_detected:
             verified.append(skill)
             continue
 
-        # Check mapped evidence keys
         matched = any(key in all_detected for key in evidence_keys)
-
         if matched:
             verified.append(skill)
-        elif skill_lower in ["git", "github", "postman", "figma", "ui/ux", "api testing"]:
-            # Tools that can't be verified from code — treat as weak
+            continue
+
+        # Medium evidence: ecosystem/language match
+        ecosystem_match = False
+        for lang, ecosystem in ECOSYSTEM_MAP.items():
+            if lang in all_detected and skill_lower in ecosystem:
+                ecosystem_match = True
+                break
+        if ecosystem_match:
             weak_evidence.append(skill)
-        else:
-            unsupported.append(skill)
+            continue
+
+        # Weak evidence: tools that can't be verified from code
+        if skill_lower in ["git", "github", "postman", "figma", "ui/ux", "api testing",
+                            "nosql", "html", "css", "sql"]:
+            weak_evidence.append(skill)
+            continue
+
+        # Unverified — no signal found, but don't penalize heavily
+        unsupported.append(skill)
 
     total = len(skills)
     verified_count = len(verified)

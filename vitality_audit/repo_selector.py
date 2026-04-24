@@ -119,19 +119,15 @@ def get_recency_weight(pushed_at):
 def compute_infra_score(repo):
     infra = repo.get("infra", {})
 
-    # Use pre-computed infra_score if available
     if infra.get("infra_score") is not None:
         return infra.get("infra_score", 0)
 
+    # fallback manual calculation
     score = 0
-    if infra.get("has_docker"):
-        score += 15
-    if infra.get("has_ci"):
-        score += 15
-    if infra.get("has_dependencies"):
-        score += 10
-    if infra.get("has_deployment_config"):
-        score += 10
+    if infra.get("has_docker"):          score += 15
+    if infra.get("has_ci"):              score += 15
+    if infra.get("has_dependencies"):    score += 10
+    if infra.get("has_deployment_config"): score += 10
 
     return score
 
@@ -139,52 +135,44 @@ def compute_infra_score(repo):
 
 def compute_repo_score(repo):
 
-    # ---------------- RAW SIGNALS ----------------
     stars = repo.get("stars", 0)
     recency_weight = get_recency_weight(repo.get("pushed_at"))
-
     infra_raw = compute_infra_score(repo)
-
     commit_score = repo.get("commit_score", 0)
     alignment_score = repo.get("alignment_score", 0)
     demo_score = repo.get("demo_score", 0)
     complexity_score = repo.get("complexity_score", 0)
     stack_score = repo.get("stack_score", 0)
 
-    # ---------------- NORMALIZED COMPONENTS ----------------
+    # complexity → 25%
+    complexity_component = (complexity_score / 100) * 25
 
-    # commit quality → 15%
+    # alignment → 20% (capped contribution)
+    alignment_component = (min(alignment_score, 80) / 80) * 20
+
+    # stack → 20%
+    sophistication_component = (stack_score / 100) * 20
+
+    # commits → 15%
     commit_component = (commit_score / 100) * 15
 
-    # README alignment → 15%
-    alignment_component = (alignment_score / 100) * 15
-
-    # complexity → 15%
-    complexity_component = (complexity_score / 100) * 15
-
-    # stack depth → 15%
-    sophistication_component = (stack_score / 100) * 15
-
-    # infra → 10% (max infra_score = 50)
-    infra_component = (min(infra_raw, 50) / 50) * 10
-
-    # demo quality → 10%
+    # demo → 10%
     demo_component = (demo_score / 10) * 10
 
-    # recency → 5%
-    recency_component = (recency_weight / 5) * 5
+    # infra bonus only → 5% (max infra_score=50, realistic no-docker=20)
+    infra_component = (min(infra_raw, 30) / 30) * 5
 
-    # stars → 5%
-    stars_component = min(stars / 20, 1) * 5
+    # stars + recency → 5%
+    recency_component = (recency_weight / 5) * 3
+    stars_component = min(stars / 20, 1) * 2
 
-    # ---------------- FINAL SCORE ----------------
     score = (
-        commit_component +
-        alignment_component +
         complexity_component +
+        alignment_component +
         sophistication_component +
-        infra_component +
+        commit_component +
         demo_component +
+        infra_component +
         recency_component +
         stars_component
     )
@@ -454,7 +442,7 @@ def enrich_repo(repo, owner, demo_results):
 
 
 # ---------------- MAIN SELECTOR ----------------
-def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=2):
+def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=3):
 
     projects = parsed_data.get("projects", [])
     skills = parsed_data.get("skills", [])
@@ -559,12 +547,16 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=2
     print("\n Final Selected Repositories:")
     print([r["name"] for r in final_repos])
 
-    # ---------------- FINAL SCORE ----------------
-    final_score, label, reasons = compute_final_score_v2(final_repos, audit_signals)
-    confidence_score, confidence_label, confidence_reasons = compute_confidence_score(final_repos, final_score, audit_signals)
-
     # ---------------- SKILL VALIDATION ----------------
-    skill_validation = compute_skill_validation(skills, final_repos)
+    skill_validation = compute_skill_validation(skills, final_repos, all_repos=repos)
+
+    # ---------------- FINAL SCORE ----------------
+    final_score, label, reasons = compute_final_score_v2(
+        final_repos, audit_signals,
+        skill_validation_score=skill_validation.get("validation_score", 0)
+    )
+
+    confidence_score, confidence_label, confidence_reasons = compute_confidence_score(final_repos, final_score, audit_signals)
 
     # ---------------- REPO TIERING ----------------
     for repo in final_repos:
