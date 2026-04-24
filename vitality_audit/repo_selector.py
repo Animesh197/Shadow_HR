@@ -382,6 +382,10 @@ def enrich_repo(repo, owner, demo_results):
 
     name = repo.get("name")
 
+    # Fetch README once upfront — shared by infra + alignment
+    from vitality_audit.readme_analyzer import fetch_readme as _fetch_readme
+    readme_text = _fetch_readme(owner, name) if owner and name else ""
+
     # --------------------------------------------------------
     # RUN INFRA + COMMITS + README IN PARALLEL
     # --------------------------------------------------------
@@ -389,7 +393,7 @@ def enrich_repo(repo, owner, demo_results):
     from concurrent.futures import ThreadPoolExecutor
 
     with ThreadPoolExecutor(max_workers=3) as inner:
-        f_infra = inner.submit(check_repo_infra, owner, name)
+        f_infra = inner.submit(check_repo_infra, owner, name, repo, readme_text)
         f_commits = inner.submit(analyze_repo_commits, owner, name)
         f_alignment = inner.submit(analyze_readme_alignment, owner, name, repo)
 

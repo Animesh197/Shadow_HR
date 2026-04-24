@@ -1,5 +1,6 @@
 import requests
 import os
+from utils.deployment_utils import collect_deployment_signals
 
 GITHUB_API = "https://api.github.com"
 
@@ -66,7 +67,7 @@ def check_dependencies_in_tree(owner, repo_name):
 
 
 # ---------------- MAIN FUNCTION ----------------
-def check_repo_infra(owner, repo_name):
+def check_repo_infra(owner, repo_name, repo=None, readme_text=""):
     cache_key = f"{owner}/{repo_name}"
     if cache_key in _INFRA_CACHE:
         return _INFRA_CACHE[cache_key]
@@ -81,6 +82,8 @@ def check_repo_infra(owner, repo_name):
             "has_ci": False,
             "has_dependencies": False,
             "has_deployment_config": False,
+            "deployment_confidence": 0,
+            "deployment_signals": [],
             "infra_score": 0
         }
 
@@ -117,6 +120,18 @@ def check_repo_infra(owner, repo_name):
     if not has_dependencies:
         has_dependencies = check_dependencies_in_tree(owner, repo_name)
 
+    # ---------------- DEPLOYMENT CONFIDENCE ----------------
+    repo_meta = repo or {}
+    deployment_data = collect_deployment_signals(
+        repo_meta, readme_text, root_items, get_repo_contents
+    )
+    deployment_confidence = deployment_data["deployment_confidence"]
+    deployment_signals = deployment_data["signals"]
+
+    # Update has_deployment_config if confidence signals found it
+    if not has_deployment_config and deployment_confidence >= 2:
+        has_deployment_config = True
+
     # ---------------- INFRA SCORE ----------------
     infra_score = 0
     if has_docker:
@@ -125,14 +140,15 @@ def check_repo_infra(owner, repo_name):
         infra_score += 15
     if has_dependencies:
         infra_score += 10
-    if has_deployment_config:
-        infra_score += 10
+    infra_score += min(deployment_confidence, 10)  # replaces flat +10 for deployment
 
     result = {
         "has_docker": has_docker,
         "has_ci": has_ci,
         "has_dependencies": has_dependencies,
         "has_deployment_config": has_deployment_config,
+        "deployment_confidence": deployment_confidence,
+        "deployment_signals": deployment_signals,
         "infra_score": infra_score
     }
 
