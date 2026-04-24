@@ -1,0 +1,22 @@
+# HTTP & async
+requests
+aiohttp
+
+# PDF parsing
+pymupdf
+
+# LLM
+groq
+
+# Environment
+python-dotenv
+
+# GitHub / web validation
+playwright
+
+# NLP / embeddings
+sentence-transformers
+scikit-learn
+
+# UI
+streamlit
