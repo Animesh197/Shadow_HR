@@ -175,7 +175,7 @@ Each repository is scored independently before portfolio aggregation.
 
 **Complexity Score** is gated — a repo must have commits, dependencies, and a README/description to receive the baseline bonus (+18). This prevents empty repos from scoring artificially. Architecture bonus rewards frontend + backend + database + AI + auth layer combinations.
 
-**README Alignment** compares tech keywords claimed in the README against evidence from `package.json`, `requirements.txt`, `pyproject.toml`, `prisma/schema.prisma`, `firebase.json`, `next.config.js`, and other config files. Uses substring alias matching to catch scoped packages (`@prisma/client`, `@clerk/nextjs`, `@tanstack/react-query`). Repos with no README but strong dependency evidence receive partial credit (up to 60).
+**README Alignment** compares tech keywords claimed in the README against evidence from `package.json`, `requirements.txt`, `pyproject.toml`, `prisma/schema.prisma`, `firebase.json`, `next.config.js`, and other config files. Uses substring alias matching to catch scoped packages (`@prisma/client`, `@clerk/nextjs`, `@tanstack/react-query`). If `package.json` is not at the repo root, automatically scans common subdirectories (`src/`, `client/`, `frontend/`, `web/`, `app/`, `backend/`, `server/`). Repos with no README but strong dependency evidence receive partial credit (up to 60).
 
 **Stack Sophistication** rewards ecosystem synergy, not just library count. Example bonuses:
 
