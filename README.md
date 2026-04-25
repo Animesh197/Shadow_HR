@@ -476,7 +476,7 @@ That's the difference between a keyword scanner and an engineering audit.
 
 ---
 
-## Future Roadmap
+## Future Roadmap 
 
 - [ ] LinkedIn profile cross-referencing
 - [ ] Code quality analysis (cyclomatic complexity, test coverage)
@@ -491,6 +491,4 @@ That's the difference between a keyword scanner and an engineering audit.
 
 ---
 
-## License
 
-MIT License — see [LICENSE](LICENSE) for details.
