@@ -213,7 +213,7 @@ SOURCE_CONFIDENCE = {
 # STEP 5: FILE FETCHER
 # ============================================================
 
-def fetch_file_content(owner, repo, path):
+def fetch_file_content(owner, repo, path, cache_404=True):
 
     # --------------------------------------------------------
     # CACHE HIT
@@ -238,7 +238,10 @@ def fetch_file_content(owner, repo, path):
         response = requests.get(url, headers=headers, timeout=20)
 
         if response.status_code != 200:
-            set_cached_file(owner, repo, path, "")
+            # Only cache the miss if caller wants it (e.g. README paths)
+            # Dependency files should NOT cache 404 so nested scan can retry
+            if cache_404:
+                set_cached_file(owner, repo, path, "")
             return ""
 
         data = response.json()
@@ -246,10 +249,6 @@ def fetch_file_content(owner, repo, path):
         content = base64.b64decode(
             data.get("content", "")
         ).decode("utf-8")
-
-        # ----------------------------------------------------
-        # CACHE STORE
-        # ----------------------------------------------------
 
         set_cached_file(owner, repo, path, content)
 
@@ -453,23 +452,45 @@ def collect_repo_evidence(owner, repo_name, repo_data):
 
     language = (repo_data.get("language") or "").lower()
 
-    # Always fetch all dependency files regardless of language
-    package_content = fetch_file_content(owner, repo_name, "package.json")
-    req_content = fetch_file_content(owner, repo_name, "requirements.txt")
-    pyproject_content = fetch_file_content(owner, repo_name, "pyproject.toml")
+    # Dependency files — don't cache 404 so nested scan can retry
+    package_content = fetch_file_content(owner, repo_name, "package.json", cache_404=False)
+    req_content = fetch_file_content(owner, repo_name, "requirements.txt", cache_404=False)
+    pyproject_content = fetch_file_content(owner, repo_name, "pyproject.toml", cache_404=False)
 
-    # Additional config files
+    # --------------------------------------------------------
+    # NESTED FOLDER SCAN — if root dependency files are empty
+    # --------------------------------------------------------
+    COMMON_SUBDIRS = ["src", "client", "frontend", "web", "app", "apps", "backend", "server"]
+
+    if not package_content:
+        for subdir in COMMON_SUBDIRS:
+            content = fetch_file_content(owner, repo_name, f"{subdir}/package.json", cache_404=False)
+            if content:
+                package_content = content
+                import logging
+                logging.debug(f"[collect_repo_evidence] {repo_name}: found package.json in /{subdir}")
+                break
+
+    if not req_content:
+        for subdir in COMMON_SUBDIRS:
+            content = fetch_file_content(owner, repo_name, f"{subdir}/requirements.txt", cache_404=False)
+            if content:
+                req_content = content
+                import logging
+                logging.debug(f"[collect_repo_evidence] {repo_name}: found requirements.txt in /{subdir}")
+                break
+
+    # Additional config files (README-style paths, cache 404 normally)
     next_config = fetch_file_content(owner, repo_name, "next.config.js")
     vite_config = fetch_file_content(owner, repo_name, "vite.config.js")
     tsconfig = fetch_file_content(owner, repo_name, "tsconfig.json")
     firebase_config = fetch_file_content(owner, repo_name, "firebase.json")
     prisma_schema = fetch_file_content(owner, repo_name, "prisma/schema.prisma")
-
     docker_content = fetch_file_content(owner, repo_name, "Dockerfile")
 
-    # ------------------------------------------------------------
-    # PHASE 8 — DEPENDENCY SIGNAL CACHE (structured)
-    # ------------------------------------------------------------
+    # --------------------------------------------------------
+    # PARSE DEPENDENCY FILES
+    # --------------------------------------------------------
 
     parsed_pkg = extract_from_package_json(package_content)
     parsed_req = extract_from_requirements(req_content)
@@ -481,10 +502,31 @@ def collect_repo_evidence(owner, repo_name, repo_data):
     all_detected.update(parsed_pyproject)
 
     import logging
-    logging.debug(f"[collect_repo_evidence] {repo_name}: pkg={list(parsed_pkg.keys())} req={list(parsed_req.keys())} pyproject={list(parsed_pyproject.keys())}")
+    logging.debug(f"[collect_repo_evidence] {repo_name}: pkg={list(parsed_pkg.keys())} req={list(parsed_req.keys())}")
 
-    # Build structured dependency signals by category
-    dep_signals = {"frontend": [], "backend": [], "database": [], "auth": [], "ai": [], "infra": [], "other": []}
+    # --------------------------------------------------------
+    # CONFIG FILE INFERENCES — added to all_detected BEFORE dep_signals
+    # --------------------------------------------------------
+
+    if next_config:
+        all_detected["nextjs"] = all_detected.get("nextjs") or {"source": "next.config.js", "confidence": 0.95}
+    if vite_config:
+        all_detected["react"] = all_detected.get("react") or {"source": "vite.config.js", "confidence": 0.9}
+    if prisma_schema:
+        all_detected["prisma"] = all_detected.get("prisma") or {"source": "prisma/schema.prisma", "confidence": 1.0}
+    if firebase_config:
+        all_detected["firebase"] = all_detected.get("firebase") or {"source": "firebase.json", "confidence": 1.0}
+
+    # --------------------------------------------------------
+    # BUILD dep_signals AFTER all_detected is fully populated
+    # --------------------------------------------------------
+
+    dep_signals = {
+        "frontend": [], "backend": [], "database": [],
+        "auth": [], "ai": [], "infra": [], "orm": [],
+        "state": [], "ui": [], "other": []
+    }
+
     for tech in all_detected:
         cat = TECH_CATEGORY_MAP.get(tech, "other")
         if cat == "core_framework":
@@ -497,25 +539,28 @@ def collect_repo_evidence(owner, repo_name, repo_data):
             dep_signals["ai"].append(tech)
         elif cat == "infra":
             dep_signals["infra"].append(tech)
+        elif cat == "orm":
+            dep_signals["orm"].append(tech)
+        elif cat == "auth":
+            dep_signals["auth"].append(tech)
+        elif cat == "state":
+            dep_signals["state"].append(tech)
+        elif cat == "ui_library":
+            dep_signals["ui"].append(tech)
         else:
             dep_signals["other"].append(tech)
 
-    # jwt/auth detection
+    # jwt/auth keyword detection from raw content
     pkg_lower = package_content.lower() + req_content.lower()
     if any(kw in pkg_lower for kw in ["jsonwebtoken", "jwt", "passport", "bcrypt", "authlib", "python-jose"]):
-        dep_signals["auth"].append("jwt/auth")
+        if "jwt/auth" not in dep_signals["auth"]:
+            dep_signals["auth"].append("jwt/auth")
 
     repo_data["dependency_signals"] = dep_signals
 
-    # Infer nextjs/vite from config files
-    if next_config:
-        all_detected["nextjs"] = {"source": "next.config.js", "confidence": 0.95}
-    if vite_config:
-        all_detected["react"] = all_detected.get("react") or {"source": "vite.config.js", "confidence": 0.9}
-    if prisma_schema:
-        all_detected["prisma"] = {"source": "prisma/schema.prisma", "confidence": 1.0}
-    if firebase_config:
-        all_detected["firebase"] = {"source": "firebase.json", "confidence": 1.0}
+    # --------------------------------------------------------
+    # BUILD EVIDENCE
+    # --------------------------------------------------------
 
     sources = [all_detected, detect_dockerfile(docker_content)]
 
@@ -532,7 +577,6 @@ def collect_repo_evidence(owner, repo_name, repo_data):
 
     # infra fallback
     infra = repo_data.get("infra", {})
-
     if infra.get("has_docker"):
         evidence["docker"].append({
             "source": "infra",
