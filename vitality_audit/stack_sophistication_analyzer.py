@@ -5,16 +5,25 @@ TECH_SCORES = {
     "express": 5, "fastapi": 7, "django": 6, "nestjs": 7, "flask": 4,
     # database
     "mongodb": 5, "postgresql": 6, "mysql": 4, "redis": 6, "prisma": 8,
+    "drizzle": 7,
     # infra
-    "docker": 8, "kubernetes": 10, "nginx": 6, "vercel": 4,
+    "docker": 8, "kubernetes": 10, "nginx": 6, "vercel": 4, "firebase": 5,
     # ai/ml
     "tensorflow": 10, "pytorch": 10, "langchain": 9, "langgraph": 10,
     "openai": 7, "transformers": 8, "groq": 7,
-    # orm / data
+    # orm
     "sequelize": 5, "typeorm": 5,
-    # tooling / ui
-    "graphql": 7, "socketio": 6, "tailwind": 4, "axios": 2,
-    "zustand": 5, "radix": 4, "clerk": 5,
+    # auth
+    "clerk": 6, "nextauth": 5, "jwt": 4,
+    # state
+    "zustand": 5, "redux": 5, "reactquery": 5,
+    # ui
+    "tailwind": 4, "shadcn": 5, "radix": 4, "framermotion": 4, "lucide": 2,
+    # forms/validation
+    "zod": 4, "reacthookform": 4,
+    # tooling
+    "graphql": 7, "socketio": 6, "axios": 2, "stripe": 5, "cloudinary": 4,
+    "typescript": 5,
     # aws
     "aws": 8,
 }
@@ -23,6 +32,8 @@ TECH_SCORES = {
 SYNERGY_BONUSES = [
     ({"react", "nextjs"},                                    10, "React + NextJS ecosystem"),
     ({"nextjs", "prisma", "tailwind"},                       15, "NextJS + Prisma + Tailwind stack"),
+    ({"nextjs", "clerk", "prisma"},                          12, "NextJS + Auth + ORM"),
+    ({"nextjs", "zod", "reacthookform"},                     8,  "NextJS + validation stack"),
     ({"express", "mongodb"},                                  8, "MERN backend"),
     ({"fastapi", "postgresql"},                               8, "FastAPI + PostgreSQL"),
     ({"langchain", "openai"},                                12, "LangChain + OpenAI AI stack"),
@@ -36,6 +47,10 @@ SYNERGY_BONUSES = [
     ({"docker", "express"},                                   8, "Containerized backend"),
     ({"zustand", "react"},                                    6, "State management"),
     ({"socketio", "express"},                                 8, "Real-time backend"),
+    ({"stripe", "nextjs"},                                    8, "Payment integration"),
+    ({"cloudinary", "nextjs"},                                6, "Media management"),
+    ({"typescript", "nextjs"},                                6, "Type-safe NextJS"),
+    ({"reactquery", "nextjs"},                                7, "Server state management"),
 ]
 
 

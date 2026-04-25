@@ -27,45 +27,79 @@ from utils.github_cache import get_cached_file, set_cached_file
 # normalized_name : aliases
 
 MASTER_TECH_MAP = {
-    "react": ["react", "react-dom"],
-    "nextjs": ["next", "nextjs"],
-    "vue": ["vue", "nuxt"],
+    # frontend frameworks
+    "react": ["react", "react-dom", "react-scripts"],
+    "nextjs": ["next", "nextjs", "@next/font", "next-themes"],
+    "vue": ["vue", "nuxt", "@vue/core"],
     "angular": ["@angular/core"],
-    "svelte": ["svelte"],
+    "svelte": ["svelte", "@sveltejs/kit"],
 
-    "express": ["express"],
-    "nestjs": ["@nestjs/core"],
+    # backend
+    "express": ["express", "express-async-handler"],
+    "nestjs": ["@nestjs/core", "@nestjs/common"],
     "fastapi": ["fastapi"],
-    "django": ["django"],
+    "django": ["django", "djangorestframework"],
     "flask": ["flask"],
 
+    # database
     "mongodb": ["mongodb", "mongoose"],
-    "postgresql": ["postgresql", "psycopg2", "pg"],
-    "mysql": ["mysql"],
-    "redis": ["redis"],
+    "postgresql": ["postgresql", "psycopg2", "pg", "postgres"],
+    "mysql": ["mysql", "mysql2"],
+    "redis": ["redis", "ioredis"],
 
-    "tensorflow": ["tensorflow", "tensorflow-gpu"],
+    # ai/ml
+    "tensorflow": ["tensorflow", "tensorflow-gpu", "@tensorflow/tfjs"],
     "pytorch": ["torch", "torchvision"],
-    "langchain": ["langchain", "@langchain/core"],
-    "openai": ["openai"],
-    "llamaindex": ["llama-index"],
+    "langchain": ["langchain", "@langchain/core", "@langchain/openai", "@langchain/community"],
+    "langgraph": ["langgraph", "@langchain/langgraph"],
+    "openai": ["openai", "@openai/openai"],
+    "groq": ["groq", "groq-sdk"],
+    "llamaindex": ["llama-index", "llamaindex"],
     "transformers": ["transformers", "sentence-transformers"],
 
+    # infra
     "docker": ["docker"],
     "kubernetes": ["kubernetes", "k8s"],
     "nginx": ["nginx"],
 
-    "prisma": ["prisma"],
+    # orm / data
+    "prisma": ["prisma", "@prisma/client", "@prisma/adapter"],
     "sequelize": ["sequelize"],
     "typeorm": ["typeorm"],
+    "drizzle": ["drizzle-orm", "drizzle-kit"],
 
-    "jest": ["jest"],
+    # auth
+    "clerk": ["@clerk/nextjs", "@clerk/clerk-sdk-node", "@clerk/react", "clerk"],
+    "nextauth": ["next-auth", "next-auth/react", "@auth/core"],
+    "jwt": ["jsonwebtoken", "jose", "jwt-decode"],
+
+    # state management
+    "zustand": ["zustand"],
+    "redux": ["redux", "@reduxjs/toolkit", "react-redux"],
+    "reactquery": ["@tanstack/react-query", "react-query", "@tanstack/query-core"],
+
+    # ui / styling
+    "tailwind": ["tailwindcss", "@tailwindcss/forms", "@tailwindcss/typography"],
+    "shadcn": ["@shadcn/ui", "shadcn-ui", "shadcn"],
+    "radix": ["@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu", "@radix-ui/react-slot"],
+    "framermotion": ["framer-motion"],
+    "lucide": ["lucide-react", "lucide"],
+
+    # forms / validation
+    "zod": ["zod"],
+    "reacthookform": ["react-hook-form", "@hookform/resolvers"],
+
+    # tooling
+    "jest": ["jest", "@jest/core", "vitest"],
     "pytest": ["pytest"],
     "eslint": ["eslint"],
-    "tailwind": ["tailwindcss"],
-    "socketio": ["socket.io"],
-    "graphql": ["graphql"],
+    "typescript": ["typescript", "ts-node", "@types/node"],
+    "socketio": ["socket.io", "socket.io-client"],
+    "graphql": ["graphql", "@apollo/client", "apollo-server"],
     "axios": ["axios"],
+    "stripe": ["stripe", "@stripe/stripe-js"],
+    "cloudinary": ["cloudinary", "next-cloudinary"],
+    "firebase": ["firebase", "firebase-admin"],
 }
 
 
@@ -94,7 +128,9 @@ TECH_CATEGORY_MAP = {
     "tensorflow": "ai_ml",
     "pytorch": "ai_ml",
     "langchain": "ai_ml",
+    "langgraph": "ai_ml",
     "openai": "ai_ml",
+    "groq": "ai_ml",
     "llamaindex": "ai_ml",
     "transformers": "ai_ml",
 
@@ -105,14 +141,36 @@ TECH_CATEGORY_MAP = {
     "prisma": "orm",
     "sequelize": "orm",
     "typeorm": "orm",
+    "drizzle": "orm",
+
+    "clerk": "auth",
+    "nextauth": "auth",
+    "jwt": "auth",
+
+    "zustand": "state",
+    "redux": "state",
+    "reactquery": "state",
 
     "jest": "testing",
     "pytest": "testing",
     "eslint": "tooling",
+    "typescript": "tooling",
+    "axios": "tooling",
+    "stripe": "tooling",
+    "cloudinary": "tooling",
+    "firebase": "infra",
+
     "tailwind": "ui_library",
+    "shadcn": "ui_library",
+    "radix": "ui_library",
+    "framermotion": "ui_library",
+    "lucide": "ui_library",
+
+    "zod": "tooling",
+    "reacthookform": "tooling",
+
     "socketio": "networking",
     "graphql": "api",
-    "axios": "tooling",
 }
 
 
@@ -127,6 +185,8 @@ TECH_WEIGHTS = {
     "ai_ml": 10,
     "infra": 7,
     "orm": 6,
+    "auth": 6,
+    "state": 4,
     "testing": 4,
     "ui_library": 3,
     "networking": 4,
@@ -233,13 +293,38 @@ def regex_contains(text, keyword):
 # ============================================================
 
 def extract_claimed_tech(readme_text):
-    readme_text = readme_text.lower()
+    readme_lower = readme_text.lower()
+
+    # Normalize common dot-notation variants before matching
+    readme_normalized = (
+        readme_lower
+        .replace("next.js", "nextjs")
+        .replace("node.js", "nodejs")
+        .replace("express.js", "express")
+        .replace("react.js", "react")
+        .replace("vue.js", "vue")
+        .replace("tailwindcss", "tailwind")
+        .replace("react native", "reactnative")
+        .replace("react-native", "reactnative")
+        .replace("socket.io", "socketio")
+        .replace("framer motion", "framermotion")
+        .replace("framer-motion", "framermotion")
+        .replace("react hook form", "reacthookform")
+        .replace("react-hook-form", "reacthookform")
+        .replace("next auth", "nextauth")
+        .replace("next-auth", "nextauth")
+    )
 
     claimed = set()
 
     for tech, aliases in MASTER_TECH_MAP.items():
+        # also check normalized tech name directly
+        if tech in readme_normalized:
+            claimed.add(tech)
+            continue
         for alias in aliases:
-            if regex_contains(readme_text, alias.lower()):
+            alias_norm = alias.lower().replace(".", "").replace("-", "").replace("/", "").replace("@", "")
+            if alias_norm in readme_normalized or regex_contains(readme_normalized, alias.lower()):
                 claimed.add(tech)
                 break
 
@@ -270,15 +355,18 @@ def extract_from_package_json(content):
 
         for tech, aliases in MASTER_TECH_MAP.items():
             for alias in aliases:
-                if alias.lower() in dep_names:
+                alias_lower = alias.lower()
+                # substring match handles scoped packages like @prisma/client
+                if any(alias_lower in dep or dep in alias_lower for dep in dep_names):
                     detected[tech] = {
                         "source": "package.json",
                         "confidence": SOURCE_CONFIDENCE["package.json"]
                     }
                     break
 
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.warning(f"[readme_analyzer] package.json parse error: {e}")
 
     return detected
 
@@ -294,17 +382,22 @@ def extract_from_requirements(content):
         lines = [line.strip().lower() for line in content.splitlines()]
 
         for line in lines:
+            if not line or line.startswith("#"):
+                continue
+            # strip version specifiers: fastapi>=0.95 → fastapi
+            pkg_name = re.split(r"[>=<!;\[]", line)[0].strip()
             for tech, aliases in MASTER_TECH_MAP.items():
                 for alias in aliases:
-                    if regex_contains(line, alias.lower()):
+                    if alias.lower() in pkg_name or pkg_name in alias.lower():
                         detected[tech] = {
                             "source": "requirements.txt",
                             "confidence": SOURCE_CONFIDENCE["requirements.txt"]
                         }
                         break
 
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.warning(f"[readme_analyzer] requirements.txt parse error: {e}")
 
     return detected
 
@@ -321,15 +414,16 @@ def extract_from_pyproject(content):
 
         for tech, aliases in MASTER_TECH_MAP.items():
             for alias in aliases:
-                if regex_contains(lowered, alias.lower()):
+                if alias.lower() in lowered:
                     detected[tech] = {
                         "source": "pyproject.toml",
                         "confidence": SOURCE_CONFIDENCE["pyproject.toml"]
                     }
                     break
 
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.warning(f"[readme_analyzer] pyproject.toml parse error: {e}")
 
     return detected
 
@@ -385,6 +479,9 @@ def collect_repo_evidence(owner, repo_name, repo_data):
     all_detected.update(parsed_pkg)
     all_detected.update(parsed_req)
     all_detected.update(parsed_pyproject)
+
+    import logging
+    logging.debug(f"[collect_repo_evidence] {repo_name}: pkg={list(parsed_pkg.keys())} req={list(parsed_req.keys())} pyproject={list(parsed_pyproject.keys())}")
 
     # Build structured dependency signals by category
     dep_signals = {"frontend": [], "backend": [], "database": [], "auth": [], "ai": [], "infra": [], "other": []}

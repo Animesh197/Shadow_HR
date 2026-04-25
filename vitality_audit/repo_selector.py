@@ -410,11 +410,28 @@ def enrich_repo(repo, owner, demo_results):
     # Merge detected_tech from README verified_tech + dependency signals
     readme_tech = alignment_data.get("verified_tech", [])
     dep_signals = repo.get("dependency_signals", {})
+
+    if not dep_signals:
+        import logging
+        logging.warning(f"[enrich_repo] {repo.get('name')}: dependency_signals empty after alignment")
+
     dep_tech = []
     for techs in dep_signals.values():
-        dep_tech.extend(techs)
+        if isinstance(techs, list):
+            dep_tech.extend(techs)
 
-    repo["detected_tech"] = list(set(readme_tech + dep_tech))
+    # Clean: normalize casing, remove junk entries
+    JUNK_ENTRIES = {"jwt/auth", "other", ""}
+    all_tech = set()
+    for t in (readme_tech + dep_tech):
+        t_clean = t.strip().lower()
+        if t_clean and t_clean not in JUNK_ENTRIES:
+            all_tech.add(t_clean)
+
+    repo["detected_tech"] = list(all_tech)
+
+    import logging
+    logging.debug(f"[enrich_repo] {repo.get('name')}: detected_tech={repo['detected_tech']}")
 
     # --------------------------------------------------------
     # COMPLEXITY + STACK (depend on detected_tech, run after)

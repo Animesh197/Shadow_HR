@@ -19,20 +19,22 @@ It takes a PDF resume, extracts every technical claim, fetches the candidate's G
 ## Key Features
 
 - PDF resume parsing with embedded link extraction
-- LLM-powered entity extraction (name, GitHub, skills, projects)
+- LLM-powered entity extraction (name, GitHub, skills, projects) via Groq
 - GitHub repository fetching with full pagination
 - Intelligent repo pre-filtering using project name + skill + recency signals
-- Semantic + fuzzy project-to-repo matching
+- Semantic + fuzzy project-to-repo matching with sentence-transformer embeddings
 - README alignment scoring against actual dependency evidence
+- Modern JS/Python ecosystem detection (Prisma, Clerk, Zustand, Zod, LangGraph, Groq, Shadcn, etc.)
 - Stack sophistication analysis with ecosystem synergy bonuses
 - Commit pattern analysis for development authenticity
-- Infrastructure maturity detection (Docker, CI/CD, deployment configs)
-- Live demo URL validation with interactivity detection
-- Skill verification against code evidence across all repos
-- Portfolio-level credibility scoring with penalty balancing
+- Infrastructure maturity detection (Docker, CI/CD, deployment configs, nested monorepo scanning)
+- Deployment signal collection (homepage, README links, GitHub Pages, nested configs)
+- Live demo URL validation with interactivity detection and Playwright fallback
+- Skill verification against code evidence across all repos with evidence tiering
+- Portfolio-level credibility scoring with penalty balancing and forgiveness rules
 - Repo tiering (Flagship / Supporting / Practice / Weak)
 - Streamlit UI with full engineering breakdown per repository
-- Parallel execution with thread-safe caching for performance
+- Parallel execution (ThreadPoolExecutor) with thread-safe LRU caching
 
 ---
 
@@ -71,10 +73,12 @@ It takes a PDF resume, extracts every technical claim, fetches the candidate's G
 │              PARALLEL REPO ENRICHMENT (5 workers)           │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐ │
 │  │ Infra Scan   │ │ Commit Audit │ │  README Alignment    │ │
-│  │ (cached)     │ │ (cached)     │ │  + Dep Extraction    │ │
-│  └──────────────┘ └──────────────┘ └──────────────────────┘ │
+│  │ + Deployment │ │ (cached)     │ │  + Dep Extraction    │ │
+│  │ (cached)     │ └──────────────┘ └──────────────────────┘ │
+│  └──────────────┘                                           │
 │  ┌──────────────────────┐ ┌───────────────────────────────┐  │
 │  │ Stack Sophistication │ │ Complexity Scoring            │  │
+│  │ + Synergy Bonuses    │ │ + Gated Baseline              │  │
 │  └──────────────────────┘ └───────────────────────────────┘  │
 └────────────────────────────┬────────────────────────────────┘
                              │
@@ -87,7 +91,7 @@ It takes a PDF resume, extracts every technical claim, fetches the candidate's G
 ┌────────────────────────────▼────────────────────────────────┐
 │                  PORTFOLIO SCORING ENGINE                   │
 │   Repo score → weighted portfolio score → penalty system    │
-│        Skill validation → confidence score → tiering        │
+│   Skill validation (tiered) → confidence score → tiering   │
 └────────────────────────────┬────────────────────────────────┘
                              │
 ┌────────────────────────────▼────────────────────────────────┐
@@ -119,6 +123,7 @@ It takes a PDF resume, extracts every technical claim, fetches the candidate's G
 6. Demo URL Validation
    └── Parallel classification → hosted_demo / code / ignored / unknown
    └── Interactivity detection → HTML keyword + Playwright fallback
+   └── Reuses pulse results to avoid duplicate fetches
 
 7. Repo Pre-filter
    └── Score each repo: project name match + skill overlap + recency + stars
@@ -126,10 +131,15 @@ It takes a PDF resume, extracts every technical claim, fetches the candidate's G
    └── Select top 8 for deep analysis
 
 8. Parallel Repo Enrichment (per repo, 5 outer + 3 inner threads)
-   ├── Infra scan: Docker, CI, deployment configs, dependencies
+   ├── Infra scan: Docker, CI, deployment configs (root + nested dirs)
+   │   └── Deployment signals: homepage, README links, GitHub Pages
    ├── Commit analysis: pattern scoring, lifespan, gap analysis
-   ├── README alignment: tech claim extraction vs dependency evidence
-   ├── Stack sophistication: tech weights + synergy bonuses
+   ├── README alignment:
+   │   ├── Fetch package.json, requirements.txt, pyproject.toml
+   │   ├── Additional configs: next.config.js, prisma/schema.prisma, firebase.json
+   │   ├── Substring alias matching for scoped packages (@prisma/client, @clerk/nextjs)
+   │   └── Normalized README extraction (Next.js, TailwindCSS, React Native variants)
+   ├── Stack sophistication: tech weights + ecosystem synergy bonuses
    └── Complexity scoring: architecture depth + gated baseline
 
 9. Semantic Project Matching
@@ -138,7 +148,7 @@ It takes a PDF resume, extracts every technical claim, fetches the candidate's G
 10. Portfolio Scoring
     └── Repo score per repo → weighted portfolio aggregation
     └── Penalty system with forgiveness rules
-    └── Skill validation across all repos
+    └── Skill validation (strong / medium / weak / unverified tiers)
     └── Repo tiering + confidence scoring
 
 11. Output
@@ -156,25 +166,31 @@ Each repository is scored independently before portfolio aggregation.
 | Parameter | Weight | What It Measures |
 |---|---|---|
 | Complexity Score | 25% | Architecture depth, gated baseline, multi-layer detection |
-| README Alignment | 20% | Tech claims in README vs actual dependency evidence (capped at 80) |
+| README Alignment | 20% | Tech claims vs actual dependency evidence (capped at 80) |
 | Stack Sophistication | 20% | Tech weights + ecosystem synergy bonuses |
 | Commit Quality | 15% | Development authenticity, lifespan, commit density |
 | Demo Quality | 10% | Live demo presence, interactivity, homepage validation |
 | Infra Maturity | 5% | Docker, CI/CD, deployment configs (bonus only) |
 | Recency + Stars | 5% | Last push recency + star count |
 
-**Complexity Score** is gated — a repo must have commits, dependencies, and a README/description to receive the baseline bonus (+18). This prevents empty repos from scoring artificially.
+**Complexity Score** is gated — a repo must have commits, dependencies, and a README/description to receive the baseline bonus (+18). This prevents empty repos from scoring artificially. Architecture bonus rewards frontend + backend + database + AI + auth layer combinations.
 
-**README Alignment** compares tech keywords claimed in the README against evidence from `package.json`, `requirements.txt`, `pyproject.toml`, `prisma/schema.prisma`, `firebase.json`, `next.config.js`, and other config files. Repos with no README but strong dependency evidence receive partial credit (up to 60).
+**README Alignment** compares tech keywords claimed in the README against evidence from `package.json`, `requirements.txt`, `pyproject.toml`, `prisma/schema.prisma`, `firebase.json`, `next.config.js`, and other config files. Uses substring alias matching to catch scoped packages (`@prisma/client`, `@clerk/nextjs`, `@tanstack/react-query`). Repos with no README but strong dependency evidence receive partial credit (up to 60).
 
-**Stack Sophistication** rewards ecosystem synergy, not just library count:
-- React + NextJS → +10
-- NextJS + Prisma + Tailwind → +15
-- LangChain + Groq → +12
-- LangGraph agent stack → +15
-- Full MERN stack → +10
+**Stack Sophistication** rewards ecosystem synergy, not just library count. Example bonuses:
 
-**Infra Maturity** is bonus-only. Missing Docker or CI does not penalize — it simply adds no upside.
+| Combination | Bonus |
+|---|---|
+| React + NextJS | +10 |
+| NextJS + Prisma + Tailwind | +15 |
+| NextJS + Clerk + Prisma | +12 |
+| LangChain + Groq | +12 |
+| LangGraph agent stack | +15 |
+| Full MERN stack | +10 |
+| Stripe + NextJS | +8 |
+| TypeScript + NextJS | +6 |
+
+**Infra Maturity** is bonus-only. Missing Docker or CI does not penalize. Deployment confidence is scored across: root config files, nested monorepo dirs, GitHub homepage, README deployment links, Docker setup, GitHub Pages.
 
 ---
 
@@ -188,7 +204,7 @@ Each repository is scored independently before portfolio aggregation.
 | Demo Strength | 10% | fraction of repos with demo_score ≥ 3 |
 | Diversity | 10% | fraction of repos scoring ≥ 50 (capped at 3) |
 | Complexity Index | 5% | avg complexity across repos / 100 |
-| Skill Validation | 5% | verified + 0.5×weak_evidence / total_skills |
+| Skill Validation | 5% | (verified + 0.5×weak) / total_skills |
 
 **Penalty System** (max 12 points):
 - Most projects missing (>70%): −12
@@ -230,6 +246,17 @@ Each repository is scored independently before portfolio aggregation.
 
 ---
 
+### Skill Validation Tiers
+
+| Tier | Criteria |
+|---|---|
+| Strong Evidence | Exact dependency/import match in detected tech |
+| Medium Evidence | Ecosystem/language match (e.g. JS ecosystem → JavaScript skills) |
+| Weak Evidence | Tools that can't be verified from code (Git, Figma, Postman) |
+| Unverified | No signal found — not penalized, just flagged |
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -266,9 +293,9 @@ resume_auditor/
 │   ├── repo_selector.py             # Prefilter, enrichment, matching, scoring
 │   ├── readme_analyzer.py           # README alignment + dependency evidence
 │   ├── commit_analyzer.py           # Commit pattern analysis
-│   ├── infra_analyzer.py            # Infrastructure detection
+│   ├── infra_analyzer.py            # Infrastructure + deployment detection
 │   ├── complexity_analyzer.py       # Engineering complexity scoring
-│   ├── stack_sophistication_analyzer.py  # Stack depth + synergy
+│   ├── stack_sophistication_analyzer.py  # Stack depth + synergy bonuses
 │   ├── demo_quality_analyzer.py     # Demo quality scoring
 │   ├── pulse_checker.py             # Async URL liveness check
 │   ├── semantic_matcher.py          # Sentence transformer embeddings
@@ -286,10 +313,11 @@ resume_auditor/
 ├── scoring/
 │   ├── verification_index.py        # Portfolio final score
 │   ├── confidence_score.py          # Confidence scoring
-│   └── skill_validator.py           # Skill evidence validation
+│   └── skill_validator.py           # Skill evidence validation (tiered)
 │
 ├── utils/
-│   └── github_cache.py              # Thread-safe file content cache
+│   ├── github_cache.py              # Thread-safe file content cache
+│   └── deployment_utils.py          # Deployment signal collection
 │
 ├── ui/
 │   └── app.py                       # Streamlit dashboard
@@ -364,7 +392,7 @@ Edit `pdf_path` in `main.py` to point to your resume file. Output is printed as 
   "candidate": {
     "name": "Jane Doe",
     "github": "janedoe",
-    "skills": ["React", "NextJS", "Node.js", "MongoDB", "LangChain", "Docker"],
+    "skills": ["React", "NextJS", "Node.js", "MongoDB", "LangChain", "Prisma"],
     "projects": ["JewelTrack", "QuickServe"]
   },
   "analysis": {
@@ -383,12 +411,18 @@ Edit `pdf_path` in `main.py` to point to your resume file. Output is printed as 
         "commit_score": 80,
         "alignment_score": 62,
         "complexity_score": 67,
-        "stack_score": 58,
+        "stack_score": 71,
         "live_demo": true,
         "demo_score": 8,
-        "detected_tech": ["react", "nextjs", "mongodb", "prisma", "tailwind"],
+        "detected_tech": ["react", "nextjs", "mongodb", "prisma", "tailwind", "clerk", "zod"],
         "stack_verdict": "Strong modern stack",
-        "complexity_verdict": "Moderately sophisticated project"
+        "complexity_verdict": "Moderately sophisticated project",
+        "infra": {
+          "has_dependencies": true,
+          "has_deployment_config": true,
+          "deployment_confidence": 6,
+          "deployment_signals": ["GitHub homepage points to live deployment", "Root deployment config found"]
+        }
       }
     ],
     "audit": {
@@ -397,10 +431,10 @@ Edit `pdf_path` in `main.py` to point to your resume file. Output is printed as 
       "missing_projects": []
     },
     "skill_validation": {
-      "verified": ["React", "NextJS", "MongoDB", "LangChain"],
+      "verified": ["React", "NextJS", "MongoDB", "Prisma", "LangChain"],
       "weak_evidence": ["Git", "Figma"],
-      "unsupported": ["Docker"],
-      "validation_score": 71.4
+      "unsupported": [],
+      "validation_score": 82.0
     }
   }
 }
@@ -420,7 +454,7 @@ Edit `pdf_path` in `main.py` to point to your resume file. Output is printed as 
 | File content caching | Thread-safe github_cache (no re-fetch) | ~15s |
 | Playwright rate limiting | Thread-safe lock + 2s delay + cache | Prevents blocking |
 
-**Estimated total runtime:** ~2.5–3.5 min for a 30-repo profile (down from ~4.5 min).
+**Estimated total runtime:** ~2.5–3.5 min for a 30-repo profile.
 
 ---
 
