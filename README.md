@@ -375,6 +375,14 @@ streamlit run ui/app.py
 
 Open `http://localhost:8501`, upload a PDF resume, and wait for the analysis.
 
+The dashboard shows:
+- Candidate overview with final score, confidence level, and project verification count
+- Key Findings with color-coded badges (✅ verified signals, ⚠️ warnings, 📌 neutral)
+- Skills as compact colored chips — green (verified in code), yellow (weak evidence), grey (unverified)
+- Per-repo cards with tier badge, score, live demo status, and auto-generated plain-English summary
+- Tech stack chips (top 5 visible, rest behind overflow)
+- Technical details (commit score, infra, verdicts, full stack) hidden inside expandable sections
+
 ### CLI
 
 ```bash
