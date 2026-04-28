@@ -24,6 +24,21 @@ from github_utils import fetch_github_repos
 from vitality_audit.repo_selector import select_top_repos
 from vitality_audit.pulse_checker import run_pulse_check
 from validation.demo_url_validator import evaluate_all_urls
+from linkedin.candidate_classifier import classify_candidate
+
+
+def extract_linkedin_url(links, llm_linkedin):
+    """
+    Extract LinkedIn URL — resume embedded links take priority over LLM output.
+    """
+    for link in links:
+        if "linkedin.com/in/" in link:
+            return link.split("?")[0]  # strip query params
+
+    if llm_linkedin and "linkedin.com" in llm_linkedin:
+        return llm_linkedin.split("?")[0]
+
+    return ""
 
 
 # =========================================================
@@ -55,6 +70,19 @@ def run_audit_pipeline(pdf_path):
 
         github_username = normalize_github_username(parsed.get("github"), links)
         parsed["github"] = github_username
+
+        linkedin_url = extract_linkedin_url(links, parsed.get("linkedin_url", ""))
+        parsed["linkedin_url"] = linkedin_url
+
+        # ---------------- Candidate Classification ----------------
+        classification = classify_candidate(
+            parsed.get("experience", []),
+            parsed.get("education", [])
+        )
+        parsed["candidate_classification"] = classification
+
+        print("\n Candidate Classification:")
+        print(json.dumps(classification, indent=2))
 
         print("\n Final Parsed Output:")
         print(json.dumps(parsed, indent=2))
@@ -130,8 +158,12 @@ def run_audit_pipeline(pdf_path):
         "candidate": {
             "name": parsed.get("name"),
             "github": github_username,
+            "linkedin_url": parsed.get("linkedin_url", ""),
             "skills": parsed.get("skills"),
-            "projects": parsed.get("projects")
+            "projects": parsed.get("projects"),
+            "experience": parsed.get("experience", []),
+            "education": parsed.get("education", []),
+            "candidate_classification": parsed.get("candidate_classification", {})
         },
         "analysis": final_result
     }

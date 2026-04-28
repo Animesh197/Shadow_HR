@@ -4,6 +4,9 @@ Uses LLM (Groq - Llama 3.3 70B) to extract structured data:
 - GitHub
 - Skills
 - Projects
+- LinkedIn URL
+- Experience
+- Education
 
 Also cleans JSON output from LLM
 """
@@ -24,20 +27,42 @@ You are an expert resume parser.
 Extract the following details from the resume text:
 - Name
 - GitHub username or link (if available)
+- LinkedIn URL (if available, full URL like https://linkedin.com/in/username)
 - Skills (as a list of technologies)
 - Projects (short names or descriptions)
+- Experience (list of work/internship entries with company, role, start_date, end_date)
+- Education (list of education entries with institution, degree, year)
 
 Return only raw JSON.
-Do NOT include markdown formatting, backticks, or explanations. 
+Do NOT include markdown formatting, backticks, or explanations.
 
 Return ONLY valid JSON in this format:
 
 {{
   "name": "",
   "github": "",
+  "linkedin_url": "",
   "skills": [],
-  "projects": []
+  "projects": [],
+  "experience": [
+    {{
+      "company": "",
+      "role": "",
+      "start_date": "",
+      "end_date": ""
+    }}
+  ],
+  "education": [
+    {{
+      "institution": "",
+      "degree": "",
+      "year": ""
+    }}
+  ]
 }}
+
+If a field is not found, use empty string or empty list.
+For end_date, use "Present" if the role is current.
 
 Resume Text:
 {resume_text}
