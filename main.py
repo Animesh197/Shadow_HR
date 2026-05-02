@@ -214,6 +214,13 @@ def run_audit_pipeline(pdf_path):
 
     # ---------------- Repo Selection ----------------
     print("\n Selecting top relevant repositories...\n")
+    
+    # Extract LinkedIn score if available
+    linkedin_score_value = None
+    if parsed.get("_linkedin_score"):
+        linkedin_score_value = parsed["_linkedin_score"].get("linkedin_score")
+        if linkedin_score_value:
+            print(f" Including LinkedIn score in portfolio evaluation: {linkedin_score_value}")
 
     final_result = select_top_repos(
         repos,
@@ -221,7 +228,8 @@ def run_audit_pipeline(pdf_path):
         pulse_results,
         demo_results,
         links,   # NEW
-        k=3
+        k=3,
+        linkedin_score=linkedin_score_value
     )
 
     print("\n Final Output:")
@@ -319,6 +327,12 @@ if __name__ == "__main__":
     
     print(f"\nCandidate Type:  {candidate.get('candidate_classification', {}).get('candidate_type')}")
     print(f"Final Score:     {analysis.get('final_score')} — {analysis.get('label')}")
+    
+    # Show score breakdown if LinkedIn is included
+    linkedin_score_obj = linkedin.get('score', {})
+    if linkedin_score_obj and linkedin_score_obj.get('linkedin_score'):
+        print(f"  (GitHub: 75% + LinkedIn: 25%)")
+    
     print(f"Confidence:      {analysis.get('confidence', {}).get('level')}")
     print(f"Projects:        {analysis.get('audit', {}).get('matched_projects')}/{analysis.get('audit', {}).get('total_projects')} verified")
     print(f"Skills verified: {len(analysis.get('skill_validation', {}).get('verified', []))}")

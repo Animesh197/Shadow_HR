@@ -2,9 +2,13 @@
 # PHASE 6 — PORTFOLIO SCORE UPGRADE
 # ============================================================
 
-def compute_final_score_v2(repos, verification_data, skill_validation_score=0):
+def compute_final_score_v2(repos, verification_data, skill_validation_score=0, linkedin_score=None):
     """
     Portfolio-level credibility score.
+    
+    Now includes LinkedIn verification score blending:
+    - GitHub score (75% weight) - Technical evidence
+    - LinkedIn score (25% weight) - Professional consistency
     """
 
     if not repos:
@@ -86,10 +90,10 @@ def compute_final_score_v2(repos, verification_data, skill_validation_score=0):
     ) / (len(repos) * 100)
 
     # ============================================================
-    # 6. FINAL SCORE
+    # 6. GITHUB SCORE (Base Score)
     # ============================================================
 
-    final_score = (
+    github_score = (
         weighted_repo_score * 0.35 +
         match_ratio * 100 * 0.20 +
         consistency * 100 * 0.15 +
@@ -165,10 +169,25 @@ def compute_final_score_v2(repos, verification_data, skill_validation_score=0):
     penalty = min(penalty, 12)
 
     # ============================================================
-    # FINALIZE
+    # APPLY PENALTIES TO GITHUB SCORE
     # ============================================================
 
-    final_score -= penalty
+    github_score -= penalty
+    github_score = max(0, min(100, github_score))
+    
+    # ============================================================
+    # BLEND WITH LINKEDIN SCORE (Phase 14)
+    # ============================================================
+    
+    if linkedin_score is not None and linkedin_score > 0:
+        # Formula: final_score = github_score * 0.75 + linkedin_score * 0.25
+        # GitHub = evidence (75%), LinkedIn = consistency (25%)
+        final_score = (github_score * 0.75) + (linkedin_score * 0.25)
+        reasons.append(f"LinkedIn verification included (score: {linkedin_score})")
+    else:
+        # No LinkedIn score available, use GitHub score only
+        final_score = github_score
+    
     final_score = max(0, min(100, final_score))
 
     # ============================================================

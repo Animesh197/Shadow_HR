@@ -84,6 +84,7 @@ with st.spinner("Analyzing resume..."):
 
 candidate = output["candidate"]
 result = output["analysis"]
+linkedin = output.get("linkedin", {})
 audit = result.get("audit", {})
 repos = result.get("repos", [])
 reasons = result.get("reasons", [])
@@ -101,6 +102,118 @@ c3.metric("Projects Verified", f"{audit.get('matched_projects', 0)} / {audit.get
 
 st.markdown(f"**Name:** {safe(candidate.get('name'))}  &nbsp;&nbsp; **GitHub:** `{safe(candidate.get('github'))}`")
 st.divider()
+
+# ── Step 1.5: LinkedIn Verification ───────────────────────────────────────────
+
+linkedin_profile = linkedin.get("profile", {})
+linkedin_score_data = linkedin.get("score", {})
+linkedin_match = linkedin.get("match_results", {})
+
+if linkedin_profile and linkedin_profile.get("name"):
+    st.markdown("### 🔗 LinkedIn Verification")
+    
+    # LinkedIn Score Overview
+    linkedin_score = linkedin_score_data.get("linkedin_score", 0)
+    confidence = linkedin_score_data.get("confidence", {})
+    verification_status = linkedin_score_data.get("verification_status", "N/A")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    # Score with color
+    score_color_linkedin = score_color(linkedin_score)
+    col1.markdown(
+        f'<div style="text-align:center"><p style="color:#94a3b8;font-size:14px;margin:0">LinkedIn Score</p><p style="color:{score_color_linkedin};font-size:32px;font-weight:700;margin:0">{round(linkedin_score, 1)}</p></div>',
+        unsafe_allow_html=True
+    )
+    
+    # Confidence
+    conf_level = confidence.get("confidence_level", "N/A")
+    conf_color = "#22c55e" if conf_level == "high" else "#f59e0b" if conf_level == "medium" else "#ef4444"
+    col2.markdown(
+        f'<div style="text-align:center"><p style="color:#94a3b8;font-size:14px;margin:0">Confidence</p><p style="color:{conf_color};font-size:24px;font-weight:700;margin:0;text-transform:capitalize">{conf_level}</p></div>',
+        unsafe_allow_html=True
+    )
+    
+    # Verification Status
+    status_icon = "✅" if "Verified" in verification_status else "⚠️" if "Partially" in verification_status else "❌"
+    col3.markdown(
+        f'<div style="text-align:center"><p style="color:#94a3b8;font-size:14px;margin:0">Status</p><p style="font-size:18px;font-weight:600;margin:0">{status_icon} {verification_status.replace("✅ ", "").replace("⚠️  ", "").replace("❌ ", "")}</p></div>',
+        unsafe_allow_html=True
+    )
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Match Scores
+    st.markdown("**Verification Breakdown:**")
+    
+    match_col1, match_col2, match_col3, match_col4 = st.columns(4)
+    
+    identity_score = linkedin_match.get("identity", {}).get("score", 0)
+    experience_score = linkedin_match.get("experience", {}).get("score", 0)
+    education_score = linkedin_match.get("education", {}).get("score", 0)
+    timeline_score = linkedin_match.get("timeline", {}).get("score", 0)
+    
+    match_col1.metric("Identity Match", f"{identity_score}%")
+    match_col2.metric("Experience Match", f"{experience_score}%")
+    match_col3.metric("Education Match", f"{education_score}%")
+    match_col4.metric("Timeline", f"{timeline_score}%")
+    
+    # Experience Verification
+    experience_data = linkedin_match.get("experience", {})
+    if experience_data:
+        matched_exp = experience_data.get("matched_count", 0)
+        total_exp = experience_data.get("total_resume_count", 0)
+        mismatches_exp = experience_data.get("mismatches", [])
+        
+        if matched_exp > 0:
+            st.success(f"✅ {matched_exp}/{total_exp} work experience entries verified on LinkedIn")
+        
+        if mismatches_exp:
+            with st.expander(f"⚠️ {len(mismatches_exp)} experience mismatch(es)"):
+                for mismatch in mismatches_exp:
+                    st.write(f"• {mismatch.get('role', 'N/A')} at {mismatch.get('company', 'N/A')}")
+    
+    # Education Verification
+    education_data = linkedin_match.get("education", {})
+    if education_data:
+        matched_edu = education_data.get("matched_count", 0)
+        total_edu = education_data.get("total_resume_count", 0)
+        mismatches_edu = education_data.get("mismatches", [])
+        
+        if matched_edu > 0:
+            st.success(f"✅ {matched_edu}/{total_edu} education entries verified on LinkedIn")
+        
+        if mismatches_edu:
+            with st.expander(f"⚠️ {len(mismatches_edu)} education mismatch(es)"):
+                for mismatch in mismatches_edu:
+                    st.write(f"• {mismatch.get('institution', 'N/A')}")
+    
+    # LinkedIn Profile Info (expandable)
+    with st.expander("View LinkedIn Profile Details"):
+        st.markdown(f"**Name:** {linkedin_profile.get('name', 'N/A')}")
+        st.markdown(f"**Headline:** {linkedin_profile.get('headline', 'N/A')}")
+        st.markdown(f"**Location:** {linkedin_profile.get('location', 'N/A')}")
+        
+        linkedin_exp = linkedin_profile.get("experience", [])
+        if linkedin_exp:
+            st.markdown(f"**Experience ({len(linkedin_exp)} entries):**")
+            for exp in linkedin_exp[:3]:
+                st.write(f"• {exp.get('role', 'N/A')} at {exp.get('company', 'N/A')}")
+        
+        linkedin_edu = linkedin_profile.get("education", [])
+        if linkedin_edu:
+            st.markdown(f"**Education ({len(linkedin_edu)} entries):**")
+            for edu in linkedin_edu:
+                st.write(f"• {edu.get('institution', 'N/A')}")
+    
+    st.divider()
+elif linkedin.get("fetch_status") == "blocked":
+    st.warning("⚠️ LinkedIn profile is private or blocked. Verification skipped.")
+    st.divider()
+elif linkedin.get("fetch_status") == "error":
+    st.warning("⚠️ Could not fetch LinkedIn profile. Verification skipped.")
+    st.divider()
+# If no LinkedIn URL, don't show anything (no penalty)
 
 # ── Step 2: Key Findings (merged, deduplicated) ───────────────────────────────
 

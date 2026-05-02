@@ -463,7 +463,7 @@ def enrich_repo(repo, owner, demo_results):
 
 
 # ---------------- MAIN SELECTOR ----------------
-def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=3):
+def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=3, linkedin_score=None):
 
     projects = parsed_data.get("projects", [])
     skills = parsed_data.get("skills", [])
@@ -574,7 +574,8 @@ def select_top_repos(repos, parsed_data, pulse_results, demo_results, links, k=3
     # ---------------- FINAL SCORE ----------------
     final_score, label, reasons = compute_final_score_v2(
         final_repos, audit_signals,
-        skill_validation_score=skill_validation.get("validation_score", 0)
+        skill_validation_score=skill_validation.get("validation_score", 0),
+        linkedin_score=linkedin_score
     )
 
     confidence_score, confidence_label, confidence_reasons = compute_confidence_score(final_repos, final_score, audit_signals)
