@@ -28,6 +28,8 @@ from linkedin.candidate_classifier import classify_candidate
 from linkedin.linkedin_fetcher import fetch_linkedin_html
 from linkedin.linkedin_parser import parse_linkedin_profile
 from linkedin.linkedin_matcher import match_resume_linkedin
+from linkedin.linkedin_signals import generate_signals
+from linkedin.linkedin_scorer import calculate_linkedin_score
 
 
 def extract_linkedin_url(links, llm_linkedin):
@@ -127,11 +129,40 @@ def run_audit_pipeline(pdf_path):
             print(f"   Timeline Consistency: {linkedin_match_results['timeline']['score']}%")
             print(f"   Overall Score: {linkedin_match_results['overall_score']}%")
             print(f"   Overall Match: {'✅ Yes' if linkedin_match_results['overall_match'] else '❌ No'}")
+            
+            # ---------------- LinkedIn Signals ----------------
+            print("\n Generating LinkedIn signals...")
+            linkedin_signals = generate_signals(linkedin_match_results, linkedin_profile)
+            print(f" Signals Generated:")
+            print(f"   Identity Match: {linkedin_signals['identity_match']}")
+            print(f"   Experience Match: {linkedin_signals['experience_match']}")
+            print(f"   Education Match: {linkedin_signals['education_match']}")
+            print(f"   Timeline Consistency: {linkedin_signals['timeline_consistency']}")
+            print(f"   Profile Completeness: {linkedin_signals['profile_completeness']}")
+            
+            # ---------------- LinkedIn Scoring ----------------
+            print("\n Calculating LinkedIn verification score...")
+            candidate_type = parsed.get("candidate_classification", {}).get("candidate_type", "fresher")
+            linkedin_score_result = calculate_linkedin_score(
+                linkedin_signals,
+                candidate_type,
+                linkedin_profile,
+                linkedin_match_results
+            )
+            print(f" LinkedIn Score: {linkedin_score_result['linkedin_score']}")
+            print(f" Candidate Type: {linkedin_score_result['candidate_type']}")
+            print(f" Confidence: {linkedin_score_result['confidence']['confidence_level']}")
+            print(f" Verification Status: {linkedin_score_result['verification_status']}")
         else:
             print(f"\n Skipping LinkedIn parsing (fetch status: {linkedin_fetch_status})")
+            linkedin_signals = {}
+            linkedin_score_result = {}
 
-    # Store parsed profile and match results for downstream phases
+    # Store parsed profile, match results, signals, and score for downstream phases
     parsed["_linkedin_profile"] = linkedin_profile
+    parsed["_linkedin_match"] = linkedin_match_results
+    parsed["_linkedin_signals"] = linkedin_signals
+    parsed["_linkedin_score"] = linkedin_score_result
     parsed["_linkedin_match"] = linkedin_match_results
 
     # ---------------- GitHub Fetch ----------------
@@ -212,7 +243,9 @@ def run_audit_pipeline(pdf_path):
         "linkedin": {
             "fetch_status": linkedin_fetch_status,
             "profile": parsed.get("_linkedin_profile", {}),
-            "match_results": parsed.get("_linkedin_match", {})
+            "match_results": parsed.get("_linkedin_match", {}),
+            "signals": parsed.get("_linkedin_signals", {}),
+            "score": parsed.get("_linkedin_score", {})
         }
     }
 
@@ -275,6 +308,14 @@ if __name__ == "__main__":
         print(f"  Timeline Consistency: {linkedin_match.get('timeline', {}).get('score', 0)}%")
         print(f"  Overall Match Score:  {linkedin_match.get('overall_score', 0)}%")
         print(f"  Verification Status:  {'✅ Verified' if linkedin_match.get('overall_match') else '⚠️  Inconsistencies Found'}")
+    
+    # Display LinkedIn score
+    linkedin_score = linkedin.get('score', {})
+    if linkedin_score:
+        print(f"\nLinkedIn Score:")
+        print(f"  Score:                {linkedin_score.get('linkedin_score', 0)}/100")
+        print(f"  Confidence:           {linkedin_score.get('confidence', {}).get('confidence_level', 'N/A')}")
+        print(f"  Verification Status:  {linkedin_score.get('verification_status', 'N/A')}")
     
     print(f"\nCandidate Type:  {candidate.get('candidate_classification', {}).get('candidate_type')}")
     print(f"Final Score:     {analysis.get('final_score')} — {analysis.get('label')}")
