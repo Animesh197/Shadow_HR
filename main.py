@@ -25,6 +25,7 @@ from vitality_audit.repo_selector import select_top_repos
 from vitality_audit.pulse_checker import run_pulse_check
 from validation.demo_url_validator import evaluate_all_urls
 from linkedin.candidate_classifier import classify_candidate
+from linkedin.linkedin_fetcher import fetch_linkedin_html
 
 
 def extract_linkedin_url(links, llm_linkedin):
@@ -90,6 +91,19 @@ def run_audit_pipeline(pdf_path):
     except:
         print("\n⚠️ JSON parsing failed. Raw output shown above.")
         parsed = {}
+
+    # ---------------- LinkedIn Fetch ----------------
+    linkedin_url = parsed.get("linkedin_url", "")
+    linkedin_html = ""
+    linkedin_fetch_status = "skipped"
+
+    if linkedin_url:
+        print(f"\n Fetching LinkedIn profile: {linkedin_url}")
+        linkedin_html, linkedin_fetch_status = fetch_linkedin_html(linkedin_url)
+        print(f" LinkedIn fetch status: {linkedin_fetch_status}")
+
+    # Store HTML internally for downstream phases — never returned in output
+    parsed["_linkedin_html"] = linkedin_html
 
     # ---------------- GitHub Fetch ----------------
     github_username = parsed.get("github")
@@ -165,7 +179,10 @@ def run_audit_pipeline(pdf_path):
             "education": parsed.get("education", []),
             "candidate_classification": parsed.get("candidate_classification", {})
         },
-        "analysis": final_result
+        "analysis": final_result,
+        "linkedin": {
+            "fetch_status": linkedin_fetch_status
+        }
     }
 
 
@@ -174,9 +191,28 @@ def run_audit_pipeline(pdf_path):
 # =========================================================
 
 if __name__ == "__main__":
-    pdf_path = "resumes/resume3.pdf"
+    pdf_path = "resumes/resume5.pdf"
 
     output = run_audit_pipeline(pdf_path)
 
     print("\n ================= FINAL STRUCTURED OUTPUT =================\n")
-    print(json.dumps(output, indent=2))
+
+    # Print summary only — avoids BlockingIOError from large HTML/JSON dumps
+    candidate = output.get("candidate", {})
+    analysis = output.get("analysis", {})
+    linkedin = output.get("linkedin", {})
+
+    print(f"Name:            {candidate.get('name')}")
+    print(f"GitHub:          {candidate.get('github')}")
+    print(f"LinkedIn URL:    {candidate.get('linkedin_url')}")
+    print(f"LinkedIn Fetch:  {linkedin.get('fetch_status')}")
+    print(f"Candidate Type:  {candidate.get('candidate_classification', {}).get('candidate_type')}")
+    print(f"Final Score:     {analysis.get('final_score')} — {analysis.get('label')}")
+    print(f"Confidence:      {analysis.get('confidence', {}).get('level')}")
+    print(f"Projects:        {analysis.get('audit', {}).get('matched_projects')}/{analysis.get('audit', {}).get('total_projects')} verified")
+    print(f"Skills verified: {len(analysis.get('skill_validation', {}).get('verified', []))}")
+    print(f"Reasons:         {analysis.get('reasons', [])}")
+    print()
+    print("Repos:")
+    for r in analysis.get("repos", []):
+        print(f"  {r.get('name'):30s} score={r.get('score')}  tier={r.get('tier')}")

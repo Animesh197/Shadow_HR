@@ -23,3 +23,6 @@ streamlit
 
 # Date parsing (LinkedIn classifier)
 python-dateutil
+
+# Bot detection bypass for LinkedIn fetching
+playwright-stealth
