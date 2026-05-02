@@ -26,3 +26,6 @@ python-dateutil
 
 # Bot detection bypass for LinkedIn fetching
 playwright-stealth
+
+# HTML parsing (LinkedIn parser)
+beautifulsoup4

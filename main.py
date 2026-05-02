@@ -26,6 +26,7 @@ from vitality_audit.pulse_checker import run_pulse_check
 from validation.demo_url_validator import evaluate_all_urls
 from linkedin.candidate_classifier import classify_candidate
 from linkedin.linkedin_fetcher import fetch_linkedin_html
+from linkedin.linkedin_parser import parse_linkedin_profile
 
 
 def extract_linkedin_url(links, llm_linkedin):
@@ -96,14 +97,28 @@ def run_audit_pipeline(pdf_path):
     linkedin_url = parsed.get("linkedin_url", "")
     linkedin_html = ""
     linkedin_fetch_status = "skipped"
+    linkedin_profile = {}
 
     if linkedin_url:
         print(f"\n Fetching LinkedIn profile: {linkedin_url}")
         linkedin_html, linkedin_fetch_status = fetch_linkedin_html(linkedin_url)
         print(f" LinkedIn fetch status: {linkedin_fetch_status}")
+        
+        # ---------------- LinkedIn Parsing ----------------
+        if linkedin_fetch_status == "success" and linkedin_html:
+            print("\n Parsing LinkedIn profile...")
+            linkedin_profile = parse_linkedin_profile(linkedin_html)
+            print(f" LinkedIn profile parsed:")
+            print(f"   Name: {linkedin_profile.get('name')}")
+            print(f"   Headline: {linkedin_profile.get('headline')[:80] if linkedin_profile.get('headline') else ''}")
+            print(f"   Location: {linkedin_profile.get('location')}")
+            print(f"   Experience entries: {len(linkedin_profile.get('experience', []))}")
+            print(f"   Education entries: {len(linkedin_profile.get('education', []))}")
+        else:
+            print(f"\n Skipping LinkedIn parsing (fetch status: {linkedin_fetch_status})")
 
-    # Store HTML internally for downstream phases — never returned in output
-    parsed["_linkedin_html"] = linkedin_html
+    # Store parsed profile for downstream phases
+    parsed["_linkedin_profile"] = linkedin_profile
 
     # ---------------- GitHub Fetch ----------------
     github_username = parsed.get("github")
@@ -181,7 +196,8 @@ def run_audit_pipeline(pdf_path):
         },
         "analysis": final_result,
         "linkedin": {
-            "fetch_status": linkedin_fetch_status
+            "fetch_status": linkedin_fetch_status,
+            "profile": parsed.get("_linkedin_profile", {})
         }
     }
 
@@ -206,7 +222,35 @@ if __name__ == "__main__":
     print(f"GitHub:          {candidate.get('github')}")
     print(f"LinkedIn URL:    {candidate.get('linkedin_url')}")
     print(f"LinkedIn Fetch:  {linkedin.get('fetch_status')}")
-    print(f"Candidate Type:  {candidate.get('candidate_classification', {}).get('candidate_type')}")
+    
+    linkedin_profile = linkedin.get('profile', {})
+    if linkedin_profile:
+        print(f"\nLinkedIn Profile:")
+        print(f"  Name:          {linkedin_profile.get('name')}")
+        print(f"  Headline:      {linkedin_profile.get('headline')[:60] if linkedin_profile.get('headline') else 'N/A'}...")
+        print(f"  Location:      {linkedin_profile.get('location')}")
+        
+        # Display experience entries
+        experience_list = linkedin_profile.get('experience', [])
+        print(f"  Experience:    {len(experience_list)} entries")
+        if experience_list:
+            for i, exp in enumerate(experience_list, 1):
+                print(f"    {i}. {exp.get('role', 'N/A')} at {exp.get('company', 'N/A')}")
+                if exp.get('start_date') or exp.get('end_date'):
+                    print(f"       {exp.get('start_date', '')} - {exp.get('end_date', '')}")
+        
+        # Display education entries
+        education_list = linkedin_profile.get('education', [])
+        print(f"  Education:     {len(education_list)} entries")
+        if education_list:
+            for i, edu in enumerate(education_list, 1):
+                print(f"    {i}. {edu.get('institution', 'N/A')}")
+                if edu.get('degree'):
+                    print(f"       {edu.get('degree')}")
+                if edu.get('year'):
+                    print(f"       ({edu.get('year')})")
+    
+    print(f"\nCandidate Type:  {candidate.get('candidate_classification', {}).get('candidate_type')}")
     print(f"Final Score:     {analysis.get('final_score')} — {analysis.get('label')}")
     print(f"Confidence:      {analysis.get('confidence', {}).get('level')}")
     print(f"Projects:        {analysis.get('audit', {}).get('matched_projects')}/{analysis.get('audit', {}).get('total_projects')} verified")
