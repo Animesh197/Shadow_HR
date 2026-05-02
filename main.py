@@ -27,6 +27,7 @@ from validation.demo_url_validator import evaluate_all_urls
 from linkedin.candidate_classifier import classify_candidate
 from linkedin.linkedin_fetcher import fetch_linkedin_html
 from linkedin.linkedin_parser import parse_linkedin_profile
+from linkedin.linkedin_matcher import match_resume_linkedin
 
 
 def extract_linkedin_url(links, llm_linkedin):
@@ -98,6 +99,7 @@ def run_audit_pipeline(pdf_path):
     linkedin_html = ""
     linkedin_fetch_status = "skipped"
     linkedin_profile = {}
+    linkedin_match_results = {}
 
     if linkedin_url:
         print(f"\n Fetching LinkedIn profile: {linkedin_url}")
@@ -114,11 +116,23 @@ def run_audit_pipeline(pdf_path):
             print(f"   Location: {linkedin_profile.get('location')}")
             print(f"   Experience entries: {len(linkedin_profile.get('experience', []))}")
             print(f"   Education entries: {len(linkedin_profile.get('education', []))}")
+            
+            # ---------------- LinkedIn Matching ----------------
+            print("\n Matching Resume ↔ LinkedIn...")
+            linkedin_match_results = match_resume_linkedin(parsed, linkedin_profile)
+            print(f" Match Results:")
+            print(f"   Identity Match: {linkedin_match_results['identity']['score']}%")
+            print(f"   Experience Match: {linkedin_match_results['experience']['score']}%")
+            print(f"   Education Match: {linkedin_match_results['education']['score']}%")
+            print(f"   Timeline Consistency: {linkedin_match_results['timeline']['score']}%")
+            print(f"   Overall Score: {linkedin_match_results['overall_score']}%")
+            print(f"   Overall Match: {'✅ Yes' if linkedin_match_results['overall_match'] else '❌ No'}")
         else:
             print(f"\n Skipping LinkedIn parsing (fetch status: {linkedin_fetch_status})")
 
-    # Store parsed profile for downstream phases
+    # Store parsed profile and match results for downstream phases
     parsed["_linkedin_profile"] = linkedin_profile
+    parsed["_linkedin_match"] = linkedin_match_results
 
     # ---------------- GitHub Fetch ----------------
     github_username = parsed.get("github")
@@ -197,7 +211,8 @@ def run_audit_pipeline(pdf_path):
         "analysis": final_result,
         "linkedin": {
             "fetch_status": linkedin_fetch_status,
-            "profile": parsed.get("_linkedin_profile", {})
+            "profile": parsed.get("_linkedin_profile", {}),
+            "match_results": parsed.get("_linkedin_match", {})
         }
     }
 
@@ -249,6 +264,17 @@ if __name__ == "__main__":
                     print(f"       {edu.get('degree')}")
                 if edu.get('year'):
                     print(f"       ({edu.get('year')})")
+    
+    # Display LinkedIn match results
+    linkedin_match = linkedin.get('match_results', {})
+    if linkedin_match:
+        print(f"\nLinkedIn Verification:")
+        print(f"  Identity Match:       {linkedin_match.get('identity', {}).get('score', 0)}%")
+        print(f"  Experience Match:     {linkedin_match.get('experience', {}).get('score', 0)}%")
+        print(f"  Education Match:      {linkedin_match.get('education', {}).get('score', 0)}%")
+        print(f"  Timeline Consistency: {linkedin_match.get('timeline', {}).get('score', 0)}%")
+        print(f"  Overall Match Score:  {linkedin_match.get('overall_score', 0)}%")
+        print(f"  Verification Status:  {'✅ Verified' if linkedin_match.get('overall_match') else '⚠️  Inconsistencies Found'}")
     
     print(f"\nCandidate Type:  {candidate.get('candidate_classification', {}).get('candidate_type')}")
     print(f"Final Score:     {analysis.get('final_score')} — {analysis.get('label')}")
