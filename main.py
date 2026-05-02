@@ -263,7 +263,7 @@ def run_audit_pipeline(pdf_path):
 # =========================================================
 
 if __name__ == "__main__":
-    pdf_path = "resumes/resume5.pdf"
+    pdf_path = "resumes/resume6.pdf"
 
     output = run_audit_pipeline(pdf_path)
 
