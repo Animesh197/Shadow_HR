@@ -26,7 +26,7 @@ from vitality_audit.pulse_checker import run_pulse_check
 from validation.demo_url_validator import evaluate_all_urls
 from linkedin.candidate_classifier import classify_candidate
 from linkedin.linkedin_fetcher import fetch_linkedin_html
-from linkedin.linkedin_parser import parse_linkedin_profile
+from linkedin.linkedin_profile_extractor import extract_linkedin_profile
 from linkedin.linkedin_matcher import match_resume_linkedin
 from linkedin.linkedin_signals import generate_signals
 from linkedin.linkedin_scorer import calculate_linkedin_score
@@ -110,14 +110,15 @@ def run_audit_pipeline(pdf_path):
         
         # ---------------- LinkedIn Parsing ----------------
         if linkedin_fetch_status == "success" and linkedin_html:
-            print("\n Parsing LinkedIn profile...")
-            linkedin_profile = parse_linkedin_profile(linkedin_html)
-            print(f" LinkedIn profile parsed:")
+            print("\n Extracting LinkedIn profile with LLM...")
+            linkedin_profile = extract_linkedin_profile(linkedin_html, linkedin_url)
+            print(f" LinkedIn profile extracted:")
             print(f"   Name: {linkedin_profile.get('name')}")
             print(f"   Headline: {linkedin_profile.get('headline')[:80] if linkedin_profile.get('headline') else ''}")
             print(f"   Location: {linkedin_profile.get('location')}")
             print(f"   Experience entries: {len(linkedin_profile.get('experience', []))}")
             print(f"   Education entries: {len(linkedin_profile.get('education', []))}")
+            print(f"   Extraction confidence: {linkedin_profile.get('confidence', {}).get('overall_confidence', 0)}%")
             
             # ---------------- LinkedIn Matching ----------------
             print("\n Matching Resume ↔ LinkedIn...")

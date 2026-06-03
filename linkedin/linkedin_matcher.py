@@ -123,6 +123,8 @@ def experience_matcher(resume_experience, linkedin_experience):
     """
     Compare work experience between resume and LinkedIn.
     
+    Uses fuzzy matching to handle variations in company and role names.
+    
     Args:
         resume_experience (list): Experience from resume
         linkedin_experience (list): Experience from LinkedIn
@@ -177,30 +179,72 @@ def experience_matcher(resume_experience, linkedin_experience):
     
     for resume_exp in resume_normalized:
         matched = False
+        best_match_score = 0
+        best_match_linkedin = None
+        best_match_details = {}
         
         for linkedin_exp in linkedin_normalized:
-            # Check if company matches
-            company_match = (
-                resume_exp["company_norm"] == linkedin_exp["company_norm"] and
-                resume_exp["company_norm"] != ""
-            )
+            resume_company = resume_exp["company_norm"]
+            linkedin_company = linkedin_exp["company_norm"]
+            resume_role = resume_exp["role_norm"]
+            linkedin_role = linkedin_exp["role_norm"]
             
-            # Check if role matches (optional, less strict)
-            role_match = (
-                resume_exp["role_norm"] == linkedin_exp["role_norm"] and
-                resume_exp["role_norm"] != ""
-            )
+            # Skip empty normalized names
+            if not resume_company or not linkedin_company:
+                continue
             
-            # Company match is sufficient (role may vary in wording)
-            if company_match:
+            # Check for exact company match
+            if resume_company == linkedin_company:
                 matches.append({
                     "resume": resume_exp["original"],
                     "linkedin": linkedin_exp["original"],
                     "company_match": True,
-                    "role_match": role_match
+                    "role_match": resume_role == linkedin_role,
+                    "match_type": "exact"
                 })
                 matched = True
                 break
+            
+            # Check for substring match (one contains the other)
+            if resume_company in linkedin_company or linkedin_company in resume_company:
+                match_score = 90
+                if match_score > best_match_score:
+                    best_match_score = match_score
+                    best_match_linkedin = linkedin_exp
+                    best_match_details = {
+                        "company_match": True,
+                        "role_match": resume_role == linkedin_role,
+                        "match_type": "substring"
+                    }
+            
+            # Check for fuzzy company similarity
+            company_similarity = SequenceMatcher(None, resume_company, linkedin_company).ratio()
+            company_score = int(company_similarity * 100)
+            
+            # If similarity is high enough, consider it
+            if company_score >= 70 and company_score > best_match_score:
+                best_match_score = company_score
+                best_match_linkedin = linkedin_exp
+                best_match_details = {
+                    "company_match": True,
+                    "role_match": resume_role == linkedin_role,
+                    "match_type": "fuzzy",
+                    "similarity": company_score
+                }
+        
+        # If exact match found, already added above
+        if matched:
+            continue
+        
+        # If we found a fuzzy match with score >= 70, accept it
+        if best_match_score >= 70 and best_match_linkedin:
+            match_entry = {
+                "resume": resume_exp["original"],
+                "linkedin": best_match_linkedin["original"]
+            }
+            match_entry.update(best_match_details)
+            matches.append(match_entry)
+            matched = True
         
         if not matched:
             mismatches.append(resume_exp["original"])
@@ -230,6 +274,8 @@ def experience_matcher(resume_experience, linkedin_experience):
 def education_matcher(resume_education, linkedin_education):
     """
     Compare education between resume and LinkedIn.
+    
+    Uses fuzzy matching to handle variations in institution names.
     
     Args:
         resume_education (list): Education from resume
@@ -283,22 +329,58 @@ def education_matcher(resume_education, linkedin_education):
     
     for resume_edu in resume_normalized:
         matched = False
+        best_match_score = 0
+        best_match_linkedin = None
         
         for linkedin_edu in linkedin_normalized:
-            # Check if institution matches
-            institution_match = (
-                resume_edu["institution_norm"] == linkedin_edu["institution_norm"] and
-                resume_edu["institution_norm"] != ""
-            )
+            resume_inst = resume_edu["institution_norm"]
+            linkedin_inst = linkedin_edu["institution_norm"]
             
-            if institution_match:
+            # Skip empty normalized names
+            if not resume_inst or not linkedin_inst:
+                continue
+            
+            # Check for exact match
+            if resume_inst == linkedin_inst:
                 matches.append({
                     "resume": resume_edu["original"],
                     "linkedin": linkedin_edu["original"],
-                    "institution_match": True
+                    "institution_match": True,
+                    "match_type": "exact"
                 })
                 matched = True
                 break
+            
+            # Check for substring match (one contains the other)
+            if resume_inst in linkedin_inst or linkedin_inst in resume_inst:
+                match_score = 90
+                if match_score > best_match_score:
+                    best_match_score = match_score
+                    best_match_linkedin = linkedin_edu
+            
+            # Check for fuzzy similarity
+            similarity = SequenceMatcher(None, resume_inst, linkedin_inst).ratio()
+            similarity_score = int(similarity * 100)
+            
+            # If similarity is high enough, consider it a match
+            if similarity_score >= 70 and similarity_score > best_match_score:
+                best_match_score = similarity_score
+                best_match_linkedin = linkedin_edu
+        
+        # If exact match found, already added above
+        if matched:
+            continue
+        
+        # If we found a fuzzy match with score >= 70, accept it
+        if best_match_score >= 70 and best_match_linkedin:
+            matches.append({
+                "resume": resume_edu["original"],
+                "linkedin": best_match_linkedin["original"],
+                "institution_match": True,
+                "match_type": "fuzzy",
+                "similarity": best_match_score
+            })
+            matched = True
         
         if not matched:
             mismatches.append(resume_edu["original"])

@@ -340,11 +340,11 @@ def prefilter_repos(repos, parsed_data, links, top_n=8):
                 score += 10
 
         # ---------------- SKILL MATCH ----------------
-        if language and language in skills:  # ✅ safe check
+        if language and language in skills:  
             score += 5
 
         # ---------------- STARS ----------------
-        score += min(stars, 5)  # ✅ now valid
+        score += min(stars, 5) 
 
         # ---------------- RECENCY ----------------
         if pushed_at:

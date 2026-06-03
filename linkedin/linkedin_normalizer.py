@@ -181,6 +181,11 @@ INSTITUTION_ALIASES = {
     'caltech': ['california institute of technology'],
     'oxford': ['university of oxford'],
     'cambridge': ['university of cambridge'],
+    # Indian Education Boards - treat as valid institutions
+    'cbse': ['central board of secondary education', 'cbse board'],
+    'icse': ['indian certificate of secondary education', 'icse board', 'cisce'],
+    'ib': ['international baccalaureate'],
+    'state board': ['state board of education'],
 }
 
 
@@ -204,6 +209,18 @@ def normalize_institution_name(institution_name):
     
     # Convert to lowercase
     normalized = institution_name.lower().strip()
+    
+    # Special handling for common abbreviations first (before suffix removal)
+    # This handles cases like "MIT" before it becomes "massachusetts"
+    for canonical, aliases in INSTITUTION_ALIASES.items():
+        # Check exact match against canonical or any alias
+        if normalized == canonical or normalized in aliases:
+            return canonical
+        
+        # Check if the full form appears in normalized
+        for alias in aliases:
+            if alias in normalized and len(alias) > 5:  # Only for substantial aliases
+                return canonical
     
     # Special handling for IIT (Indian Institute of Technology)
     if 'indian institute of technology' in normalized:
@@ -241,7 +258,7 @@ def normalize_institution_name(institution_name):
     normalized = re.sub(r'[^\w\s]', ' ', normalized)
     normalized = re.sub(r'\s+', ' ', normalized).strip()
     
-    # Check for exact match first
+    # Check again after suffix removal
     for canonical, aliases in INSTITUTION_ALIASES.items():
         if normalized == canonical:
             return canonical

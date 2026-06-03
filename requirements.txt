@@ -29,3 +29,6 @@ playwright-stealth
 
 # HTML parsing (LinkedIn parser)
 beautifulsoup4
+
+# Data validation (LinkedIn schema)
+pydantic
